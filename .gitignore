@@ -1,0 +1,15 @@
+﻿# Build output
+# dist/ is built by build.ps1; the released .xpi is committed so README links work
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Node (not used, but harmless if someone adds a toolchain)
+node_modules/
+package-lock.json
+
