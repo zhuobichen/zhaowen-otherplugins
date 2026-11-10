@@ -1,19 +1,19 @@
-{
-  "manifest_version": 2,
-  "name": "Collection Tags",
-  "version": "1.0.0",
-  "description": "Adds a column showing which collections each item belongs to, as coloured tags.",
-  "homepage_url": "https://github.com/zhuobichen/zhaowen-skill",
-  "author": "zhuobichen",
-  "icons": {
-    "48": "chrome/content/icons/tag.svg",
-    "96": "chrome/content/icons/tag.svg"
-  },
-  "applications": {
-    "zotero": {
-      "id": "collection-tags@zhuobichen.github.io",
-      "strict_min_version": "7.0",
-      "strict_max_version": "10.*"
-    }
-  }
+﻿{
+    "manifest_version":  2,
+    "name":  "Collection Tags",
+    "version":  "13.0.0",
+    "description":  "Adds a column showing which collections each item belongs to, as coloured tags.",
+    "homepage_url":  "https://github.com/zhuobichen/zhaowen-skill",
+    "author":  "zhuobichen",
+    "icons":  {
+                  "48":  "chrome/content/icons/tag.svg",
+                  "96":  "chrome/content/icons/tag.svg"
+              },
+    "applications":  {
+                         "zotero":  {
+                                        "id":  "collection-tags@zhuobichen.github.io",
+                                        "strict_min_version":  "8.999",
+                                        "strict_max_version":  "10.0.*"
+                                    }
+                     }
 }

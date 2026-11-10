@@ -1,15 +1,12 @@
-﻿# Build output
-# dist/ is built by build.ps1; the released .xpi is committed so README links work
-# OS
+﻿# Build artefacts other than the released .xpi
+dist/*.xpi
+!dist/collection-tags-*.xpi
+
+# Local database snapshot used by sync_collections_to_tags.py
+_tag_snapshot/
+
+# OS / editor
 .DS_Store
 Thumbs.db
-
-# Editor
 .vscode/
 .idea/
-*.swp
-
-# Node (not used, but harmless if someone adds a toolchain)
-node_modules/
-package-lock.json
-
