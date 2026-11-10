@@ -72,6 +72,37 @@ function log(message) {
  */
 const SEPARATOR = " \u203a ";
 
+/**
+ * Desired reading order for the taxonomy. Zotero's plugin API has no comparator
+ * for custom columns -- the tree sorts by the string returned from
+ * dataProvider -- so the order is encoded as a zero-padded rank prefix that
+ * renderCell strips again. Anything not listed sorts last, alphabetically.
+ */
+const CATEGORY_ORDER = [
+  "\u65b9\u6cd5" + SEPARATOR + "\u7edf\u8ba1\u5730\u7edf\u8ba1",
+  "\u65b9\u6cd5" + SEPARATOR + "\u673a\u5668\u5b66\u4e60",
+  "\u65b9\u6cd5" + SEPARATOR + "\u6df1\u5ea6\u5b66\u4e60",
+  "\u65b9\u6cd5" + SEPARATOR + "\u6570\u636e\u540c\u5316\u4e0e\u96c6\u5408",
+  "\u5e94\u7528" + SEPARATOR + "\u4ea7\u54c1\u4e92\u6bd4\u4e0e\u9009\u62e9\u654f\u611f\u6027",
+  "\u5e94\u7528" + SEPARATOR + "\u957f\u671f\u8d8b\u52bf\u4e0e\u65ad\u70b9",
+  "\u5e94\u7528" + SEPARATOR + "\u5065\u5eb7\u4e0e\u66b4\u9732\u5f71\u54cd",
+  "\u5e94\u7528" + SEPARATOR + "\u6570\u636e\u8c31\u7cfb\u4e0e\u9a8c\u8bc1\u65b9\u6cd5",
+  "\u672a\u5206\u7c7b" + SEPARATOR + "\u5f85\u4eba\u5de5\u5224\u5b9a",
+  "\u5783\u573e\u7bb1",
+];
+
+/** Zero-padded rank so string sort matches CATEGORY_ORDER. */
+function rankFor(entry) {
+  const index = CATEGORY_ORDER.indexOf(entry);
+  const rank = index >= 0 ? index + 1 : 99;
+  return String(rank).padStart(2, "0");
+}
+
+/** Separates the hidden sort prefix from the visible text. */
+const SORT_SEP = "\u001f";
+
+
+
 function pathForItem(item) {
   const parts = [];
   let ids = [];
@@ -114,7 +145,11 @@ function pathForItem(item) {
       ? parentName + SEPARATOR + collection.name
       : collection.name);
   }
-  return Array.from(new Set(parts)).sort().join(" | ");
+  const unique = Array.from(new Set(parts));
+  // Order entries within the cell by taxonomy rank, then attach the rank so the
+  // tree's own sort follows the same sequence.
+  unique.sort((a, b) => rankFor(a).localeCompare(rankFor(b)) || a.localeCompare(b));
+  return unique.map((e) => rankFor(e) + SORT_SEP + e).join(" | ");
 }
 
 /**
@@ -178,7 +213,9 @@ function renderCell(index, data, column, isFirstColumn, doc) {
     return cell;
   }
 
-  for (const entry of String(data).split(" | ")) {
+  for (const raw of String(data).split(" | ")) {
+    // Drop the hidden sort rank; everything after SORT_SEP is display text.
+    const entry = raw.includes(SORT_SEP) ? raw.split(SORT_SEP)[1] : raw;
     const segments = entry.split(SEPARATOR);
     const group = segments.length > 1 ? segments[0] : "";
     const leaf = segments[segments.length - 1];
