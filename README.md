@@ -24,6 +24,7 @@ Zotero 的集合（collection）行为像标签——一篇文章可以同时属
 | **只显示叶子集合** | `方法`、`应用` 这类父级是分组容器，本身不装文章，代码自动跳过 |
 | **只读** | 不改任何数据；卸载后列自动注销 |
 | **可按分类排序** | 点 Category 列标题即按「方法四类 → 应用四类 → 未分类 → 垃圾箱」排列 |
+| **索引笔记置顶** | 笔记类条目在 Category 列中显示为 `★ 分类索引` 并固定排在最前 |
 
 ### 排序顺序
 
@@ -49,7 +50,7 @@ Zotero 的自定义列 API 没有 comparator，树是按 `dataProvider` 返回�
 
 ## 安装
 
-1. 下载 [`dist/collection-tags-14.0.0.xpi`](dist/collection-tags-14.0.0.xpi)
+1. 下载 [`dist/collection-tags-14.1.0.xpi`](dist/collection-tags-14.1.0.xpi)
 2. Zotero → 工具 → 插件 → 右上角齿轮 → **Install Add-on From File...**
 3. 选择下载的 `.xpi`，重启 Zotero
 

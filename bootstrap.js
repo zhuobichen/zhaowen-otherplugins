@@ -104,6 +104,17 @@ const SORT_SEP = "\u001f";
 
 
 function pathForItem(item) {
+  // A standalone index note carries no collection, so it would sort as an
+  // empty string and land among the literature. Give notes a synthetic
+  // top-priority entry so they pin to the top of the list.
+  try {
+    if (item.isNote && item.isNote()) {
+      return "00" + SORT_SEP + "\u2605 \u5206\u7c7b\u7d22\u5f15";
+    }
+  } catch (e) {
+    // fall through to the collection logic
+  }
+
   const parts = [];
   let ids = [];
   try {
@@ -168,12 +179,12 @@ function pathForItem(item) {
 const ACCENTS = {
   method: "#3C5488",
   application: "#E64B35",
-  muted: "#8491B4",
+  muted: "#4B5563",
 };
 
 const COOL = ["\u65b9\u6cd5"];
 const WARM = ["\u5e94\u7528"];
-const MUTED = ["\u672a\u5206\u7c7b", "\u5783\u573e\u7bb1"];
+const MUTED = ["\u672a\u5206\u7c7b", "\u5783\u573e\u7bb1", "\u2605 \u5206\u7c7b\u7d22\u5f15"];
 
 function familyFor(group) {
   if (MUTED.includes(group)) return "muted";
