@@ -1,6 +1,0 @@
-[CollectionTags] startup v23.1.0
-[CollectionTags] late report scheduled
-[CollectionTags] registered: collection-tags\@zhuobichen\.github\.io-collectionTags
-[CollectionTags] menu item listeners installed
-[CollectionTags] ready after 2 ticks, menuInstalled=true
-[CollectionTags] LATE: {"revealed":{"key":"collection-tags\\@zhuobichen\\.github\\.io-collectionTags","hidden":false,"written":true,"writeError":null},"prefCount":41,"myPrefKey":"collection-tags\\@zhuobichen\\.github\\.io-collectionTags","myPrefHidden":false,"inColumns":true,"columnCount":43,"pickerWouldShow":true}

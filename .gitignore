@@ -10,3 +10,7 @@ _tag_snapshot/
 Thumbs.db
 .vscode/
 .idea/
+
+# Plugin debug log
+dist/_ct_log.txt
+
