@@ -25,6 +25,7 @@ Zotero 的集合（collection）行为像标签——一篇文章可以同时属
 | **只读** | 不改任何数据；卸载后列自动注销 |
 | **可按分类排序** | 点 Category 列标题即按「方法四类 → 应用四类 → 未分类 → 垃圾箱」排列 |
 | **索引笔记置顶** | 笔记类条目在 Category 列中显示为 `★ 分类索引` 并固定排在最前 |
+| **右键标记重点** | 条目右键菜单有「标记为重点」，打 `▲` 标签后 Category 列显示红三角 |
 
 ### 排序顺序
 
@@ -50,7 +51,7 @@ Zotero 的自定义列 API 没有 comparator，树是按 `dataProvider` 返回�
 
 ## 安装
 
-1. 下载 [`dist/collection-tags-14.1.0.xpi`](dist/collection-tags-14.1.0.xpi)
+1. 下载 [`dist/collection-tags-23.1.0.xpi`](dist/collection-tags-23.1.0.xpi)
 2. Zotero → 工具 → 插件 → 右上角齿轮 → **Install Add-on From File...**
 3. 选择下载的 `.xpi`，重启 Zotero
 
@@ -97,6 +98,23 @@ python make_index_notes.py --apply             # 全部写入
 笔记会自动加入对应子集合并打上 `分类索引` 标签。重复运行是更新而不是新建。
 配合插件的「笔记置顶」特性：点 Category 列标题，索引笔记固定排第一，
 下面是该子类的全部文献。
+
+
+## 标记重点
+
+条目右键菜单里有 **标记为重点**（带红色三角图标）。点击后给该条目打上 `▲`
+标签，Category 列会在最前面显示一个红色 ▲ 胶囊。
+
+- 也可以直接在 Zotero 左下角的标签输入框里输入 `▲`，效果相同
+- 左下角标签面板点 `▲` 可以筛选出所有重点文献
+- 批量标记用 `mark_important.py`：
+
+```powershell
+python mark_important.py --list                        # 看已标记的
+python mark_important.py --add KEY1 KEY2 --apply       # 标记
+python mark_important.py --remove KEY1 --apply         # 取消
+python mark_important.py --collections 深度学习 --apply  # 整个子类
+```
 
 
 ---
@@ -247,6 +265,45 @@ Zotero.getMainWindow().setTimeout(() => { … }, 8000);
 （`targetApplications`、`rootURI`、`location: "app-profile"` 等，字段可从打包的 manifest 生成）。
 
 更省事的办法：Zotero → 工具 → 插件 → 齿轮 → Install Add-on From File。
+
+## 13. `Zotero.MenuManager` 不能用来加带文字的菜单项
+
+四种组合全试过（Zotero 10.0.8）：
+
+| 写法 | 结果 |
+|---|---|
+| `menus: [{ menuType: "separator" }]` | ✅ 菜单正常 |
+| `menuitem` + `l10nID` | ❌ **整个条目右键菜单弹不出来** |
+| `menuitem` 无 `l10nID` | ✅ 菜单正常，但**项无文字**（API 没有 `label` 字段） |
+| `menuitem` 无 `l10nID` + `onShowing` 改文字 | ❌ 其他插件的自定义项文字也是空的，走不通 |
+
+`l10nID` 会让 Zotero 走 Fluent 解析，解析不完成时 `<menuitem>` 停在 pending 状态，
+整个 popup 打不开。而菜单 API 又没有 `label` 字段，所以**两者不可兼得**。
+
+**绕行方案**：不注册到 MenuManager，直接监听 popup 的 `popupshown` 事件，
+自己 `createXULElement("menuitem")` 插入，`popuphidden` 时移除。
+这样完全不碰 MenuManager 的状态机，不会卡死菜单。
+
+## 14. `<menuitem>` 里加子元素会被摘除
+
+想给菜单项加图标时，插入 `<image>` 子元素后它是 `parentNode === null`——
+`menuitem-iconic` 会重新组织内部结构，非标准子元素直接丢失。
+
+**图标只能画在 `menuitem` 自己的 CSS 背景上**：
+
+```js
+mi.style.backgroundImage = "url('data:image/svg+xml;utf8," + encodeURIComponent(svg) + "')";
+mi.style.backgroundPosition = "6px center";
+mi.style.paddingInlineStart = "24px";
+```
+
+另外 XUL 的 `<image src="data:...">` 不渲染，但同一张图作为 CSS
+`background-image` 正常显示。
+
+## 15. `onMainWindowLoad` 在本插件上不触发
+
+列注册、菜单注入这些需要主窗口的工作，不能依赖 `onMainWindowLoad` 回调。
+用轮询定时器等 `ZoteroPane.itemsView` 就绪后再做。
 
 ## 12. `strict_min_version` 太老会不加载
 

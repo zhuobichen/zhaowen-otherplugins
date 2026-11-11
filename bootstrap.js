@@ -26,6 +26,7 @@ const LABEL = "Category";
 const LOG_PATH = "E:\\CodeProject\\zotero-collection-tags\\dist\\_ct_log.txt";
 
 let registered = false;
+
 let pollTimer = null;
 
 function install(data, reason) {}
@@ -72,6 +73,9 @@ function log(message) {
  */
 const SEPARATOR = " \u203a ";
 
+/** Tag that marks an item as important. */
+const IMPORTANT_TAG = "\u25b2";
+
 /**
  * Desired reading order for the taxonomy. Zotero's plugin API has no comparator
  * for custom columns -- the tree sorts by the string returned from
@@ -115,11 +119,24 @@ function pathForItem(item) {
     // fall through to the collection logic
   }
 
+  // Importance marker: a "\u25b2" tag renders as a red chip ahead of the
+  // categories, so the user does not need a separate tag column.
+  let important = false;
+  try {
+    const tagNames = (item.getTags() || []).map((t) => t.tag);
+    important = tagNames.indexOf(IMPORTANT_TAG) >= 0;
+  } catch (e) {
+    important = false;
+  }
+
   const parts = [];
   let ids = [];
   try {
     ids = item.getCollections() || [];
   } catch (e) {
+    if (important) {
+      return "01" + SORT_SEP + IMPORTANT_TAG;
+    }
     return "";
   }
   for (const id of ids) {
@@ -160,7 +177,13 @@ function pathForItem(item) {
   // Order entries within the cell by taxonomy rank, then attach the rank so the
   // tree's own sort follows the same sequence.
   unique.sort((a, b) => rankFor(a).localeCompare(rankFor(b)) || a.localeCompare(b));
-  return unique.map((e) => rankFor(e) + SORT_SEP + e).join(" | ");
+  const encoded = unique.map((e) => rankFor(e) + SORT_SEP + e);
+
+  // The marker leads, so it survives the cell's width truncation.
+  if (important) {
+    encoded.unshift("01" + SORT_SEP + IMPORTANT_TAG);
+  }
+  return encoded.join(" | ");
 }
 
 /**
@@ -230,6 +253,27 @@ function renderCell(index, data, column, isFirstColumn, doc) {
     const segments = entry.split(SEPARATOR);
     const group = segments.length > 1 ? segments[0] : "";
     const leaf = segments[segments.length - 1];
+    // The importance marker gets its own treatment: a filled red chip.
+    if (!group && leaf === IMPORTANT_TAG) {
+      const flag = document.createElement("span");
+      flag.textContent = IMPORTANT_TAG;
+      flag.title = "\u91cd\u70b9";
+      flag.style.cssText = [
+        "display:inline-block",
+        "padding:0 5px",
+        "border-radius:3px",
+        "font-size:0.8em",
+        "line-height:15px",
+        "font-weight:700",
+        "color:#ffffff",
+        "background:#C0392B",
+        "border:1px solid #922B21",
+        "white-space:nowrap",
+      ].join(";");
+      cell.appendChild(flag);
+      continue;
+    }
+
     const family = familyFor(group);
     const accent = ACCENTS[family] || ACCENTS.muted;
     const fill = tint(accent, 0.9);
@@ -279,6 +323,158 @@ function renderCell(index, data, column, isFirstColumn, doc) {
 }
 
 /** Register the column through the supported API only. */
+/** Per-window state for the hand-injected context-menu item. */
+const menuState = {
+  window: null,
+  installed: false,
+  popup: null,
+  onShowing: null,
+  onHidden: null,
+};
+
+/**
+ * Attach a "toggle important" entry to the item context menu.
+ *
+ * The popup is found by id ("zotero-itemmenu"). Our element is appended on
+ * popupshown and dropped on popuphidden, so it never lingers and cannot affect
+ * the popup's own lifecycle.
+ */
+function installMenuItem(win) {
+  if (!win || menuState.installed) return;
+  const popup = win.document.getElementById("zotero-itemmenu");
+  if (!popup) {
+    log("item menu popup not found");
+    return;
+  }
+
+  const onShowing = () => {
+    try {
+      // Remove any stale copy first.
+      const old = popup.querySelector(".collection-tags-important-item");
+      if (old) old.remove();
+
+      const items = Zotero.getActiveZoteroPane().getSelectedItems() || [];
+      const regular = items.filter((it) => {
+        try {
+          return !(typeof it.isRegularItem === "function"
+            && !it.isRegularItem());
+        } catch (e) {
+          return false;
+        }
+      });
+      if (!regular.length) return;
+
+      const allMarked = regular.every((it) => {
+        try {
+          return (it.getTags() || []).some((t) => t.tag === IMPORTANT_TAG);
+        } catch (e) {
+          return false;
+        }
+      });
+
+      const mi = win.document.createXULElement("menuitem");
+      mi.className = "menuitem-iconic collection-tags-important-item";
+      // Use a real <image> child with Zotero's own icon class, so padding and
+      // vertical centring come from the menu item's native layout instead of
+      // hand-tuned offsets. An inline data URI avoids resolving a chrome: path.
+      // No child element: Zotero reparents members of a menuitem-iconic and a
+      // child <image> ends up detached (parentNode === null), which is why the
+      // icon was invisible. Paint the triangle as the item's own background
+      // instead, and inset the label so the two do not overlap.
+      const svg = "data:image/svg+xml;utf8," + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+        + '<path d="M8 2 L14 13 L2 13 Z" fill="#C0392B"/>'
+        + "</svg>");
+      mi.style.backgroundImage = "url('" + svg + "')";
+      mi.style.backgroundRepeat = "no-repeat";
+      mi.style.backgroundPosition = "6px center";
+      mi.style.backgroundSize = "11px 11px";
+      mi.style.paddingInlineStart = "24px";
+      mi.setAttribute(
+        "label",
+        allMarked
+          ? "\u53d6\u6d88\u91cd\u70b9\u6807\u8bb0"
+          : "\u6807\u8bb0\u4e3a\u91cd\u70b9"
+      );
+      mi.addEventListener("command", () => {
+        try {
+          for (const item of regular) {
+            if (allMarked) {
+              item.removeTag(IMPORTANT_TAG);
+            } else {
+              item.addTag(IMPORTANT_TAG);
+            }
+          }
+          Promise.all(regular.map((it) => it.saveTx())).catch((e) => {
+            log("saveTx failed: " + e);
+          });
+          log("toggled " + IMPORTANT_TAG + " on " + regular.length +
+              " items, remove=" + allMarked);
+        } catch (e) {
+          log("toggle failed: " + e);
+        }
+      });
+      // Place it before the first separator that follows the item-specific
+      // actions, which lands it alongside "添加笔记 / 查找全文" rather than at
+      // the very top (easy to miss) or buried in the plugin group at the end.
+      const notes = popup.querySelector(
+        "menuitem[id^='zotero-menuitem-add-note'], "
+        + "menuitem.zotero-menuitem-attach-note");
+      if (notes && notes.parentNode === popup) {
+        popup.insertBefore(mi, notes.nextSibling);
+      } else {
+        // Fallback: after the first separator.
+        const sep = popup.querySelector("menuseparator");
+        if (sep && sep.parentNode === popup) {
+          popup.insertBefore(mi, sep.nextSibling);
+        } else {
+          popup.appendChild(mi);
+        }
+      }
+    } catch (e) {
+      log("onShowing failed: " + e);
+    }
+  };
+
+  const onHidden = () => {
+    try {
+      const old = popup.querySelector(".collection-tags-important-item");
+      if (old) old.remove();
+    } catch (e) {
+      log("onHidden failed: " + e);
+    }
+  };
+
+  popup.addEventListener("popupshown", onShowing);
+  popup.addEventListener("popuphidden", onHidden);
+  menuState.window = win;
+  menuState.popup = popup;
+  menuState.onShowing = onShowing;
+  menuState.onHidden = onHidden;
+  menuState.installed = true;
+  log("menu item listeners installed");
+}
+
+function uninstallMenuItem() {
+  try {
+    if (menuState.popup) {
+      if (menuState.onShowing) {
+        menuState.popup.removeEventListener("popupshown", menuState.onShowing);
+      }
+      if (menuState.onHidden) {
+        menuState.popup.removeEventListener("popuphidden", menuState.onHidden);
+      }
+    }
+  } catch (e) {
+    log("uninstallMenuItem failed: " + e);
+  }
+  menuState.window = null;
+  menuState.popup = null;
+  menuState.onShowing = null;
+  menuState.onHidden = null;
+  menuState.installed = false;
+}
+
 async function ensureColumn() {
   if (registered) return true;
   try {
@@ -313,6 +509,20 @@ async function startup({ id, version }, reason) {
   writeText(LOG_PATH, "", false);
   log("startup v" + version);
 
+  // Context-menu item injected by hand.
+  //
+  // Zotero.MenuManager cannot be used here: it has no label field, and its
+  // l10nID path leaves the <menuitem> pending so the whole item context menu
+  // stops opening (all four combinations were tried on 10.0.8). Instead listen
+  // for popupshown on the item menu, append our own <menuitem>, and remove it
+  // again on popuphidden. Nothing is registered with MenuManager, so nothing
+  // can wedge the popup.
+  //
+  // The listeners are installed from onMainWindowLoad, and guarded so a second
+  // window or a reload does not double-add them.
+  menuState.window = null;
+  menuState.installed = false;
+
   let ticks = 0;
   pollTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
   pollTimer.initWithCallback({
@@ -329,8 +539,14 @@ async function startup({ id, version }, reason) {
           ensureColumn();
           return;
         }
+        // Install the context-menu entry now that the window exists.
+        // onMainWindowLoad never fires for this add-on.
+        if (!menuState.installed) {
+          installMenuItem(win);
+        }
         pollTimer.cancel();
-        log("done after " + ticks + " ticks");
+        log("ready after " + ticks + " ticks, menuInstalled=" +
+            menuState.installed);
       } catch (e) {
         log("tick error: " + e);
       }
@@ -408,6 +624,7 @@ async function onMainWindowLoad({ window }, reason) {
 async function onMainWindowUnload({ window }, reason) {}
 
 async function shutdown({ id, version, resourceURI, rootURI }, reason) {
+  uninstallMenuItem();
   if (reason === APP_SHUTDOWN) return;
   try {
     if (Zotero.ItemTreeManager) {
