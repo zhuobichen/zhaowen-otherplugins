@@ -1,7 +1,7 @@
 ﻿{
     "manifest_version":  2,
     "name":  "Collection Tags",
-    "version":  "23.2.0",
+    "version":  "23.3.0",
     "description":  "Adds a column showing which collections each item belongs to, as coloured tags.",
     "homepage_url":  "https://github.com/zhuobichen/zhaowen-skill",
     "author":  "zhuobichen",

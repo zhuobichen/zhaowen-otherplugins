@@ -276,24 +276,31 @@ function renderCell(index, data, column, isFirstColumn, doc) {
       continue;
     }
 
-    // The importance marker gets its own treatment: a filled red chip.
+    // The importance marker is drawn as a pure CSS triangle: U+25B2 is picked
+    // up by Segoe UI Emoji on Windows and renders as a boxed multi-colour
+    // glyph, so the shape is built from borders instead of a character.
     if (!group && leaf === IMPORTANT_TAG) {
-      const flag = document.createElement("span");
-      flag.textContent = IMPORTANT_TAG;
-      flag.title = "\u91cd\u70b9";
-      flag.style.cssText = [
-        "display:inline-block",
-        "padding:0 5px",
-        "border-radius:3px",
-        "font-size:0.8em",
+      const wrap = document.createElement("span");
+      wrap.title = "\u91cd\u70b9";
+      wrap.style.cssText = [
+        "display:inline-flex",
+        "align-items:center",
+        "justify-content:center",
+        "width:14px",
+        "height:15px",
         "line-height:15px",
-        "font-weight:700",
-        "color:#ffffff",
-        "background:#C0392B",
-        "border:1px solid #922B21",
-        "white-space:nowrap",
       ].join(";");
-      cell.appendChild(flag);
+      const tri = document.createElement("span");
+      tri.style.cssText = [
+        "display:inline-block",
+        "width:0",
+        "height:0",
+        "border-left:5px solid transparent",
+        "border-right:5px solid transparent",
+        "border-bottom:9px solid #C0392B",
+      ].join(";");
+      wrap.appendChild(tri);
+      cell.appendChild(wrap);
       continue;
     }
 
@@ -404,14 +411,15 @@ function installMenuItem(win) {
       // child <image> ends up detached (parentNode === null), which is why the
       // icon was invisible. Paint the triangle as the item's own background
       // instead, and inset the label so the two do not overlap.
+      // A plain filled triangle, no outline and no background frame.
       const svg = "data:image/svg+xml;utf8," + encodeURIComponent(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
-        + '<path d="M8 2 L14 13 L2 13 Z" fill="#C0392B"/>'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 11">'
+        + '<polygon points="6,0 12,10 0,10" fill="#C0392B"/>'
         + "</svg>");
       mi.style.backgroundImage = "url('" + svg + "')";
       mi.style.backgroundRepeat = "no-repeat";
       mi.style.backgroundPosition = "6px center";
-      mi.style.backgroundSize = "11px 11px";
+      mi.style.backgroundSize = "10px 9px";
       mi.style.paddingInlineStart = "24px";
       mi.setAttribute(
         "label",

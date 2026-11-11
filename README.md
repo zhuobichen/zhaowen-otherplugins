@@ -51,7 +51,7 @@ Zotero 的自定义列 API 没有 comparator，树是按 `dataProvider` 返回�
 
 ## 安装
 
-1. 下载 [`dist/collection-tags-23.2.0.xpi`](dist/collection-tags-23.2.0.xpi)
+1. 下载 [`dist/collection-tags-23.3.0.xpi`](dist/collection-tags-23.3.0.xpi)
 2. Zotero → 工具 → 插件 → 右上角齿轮 → **Install Add-on From File...**
 3. 选择下载的 `.xpi`，重启 Zotero
 
@@ -299,6 +299,26 @@ mi.style.paddingInlineStart = "24px";
 
 另外 XUL 的 `<image src="data:...">` 不渲染，但同一张图作为 CSS
 `background-image` 正常显示。
+
+## 16. `▲` 在 Windows 上会被 emoji 字体接管
+
+用字符 `U+25B2` 做重点标记时，Windows 把它交给 Segoe UI Emoji 渲染，
+显示成「红色带框方块里套一个三角」，而不是单纯的实心三角形。
+
+**不要用几何形状字符画图标**，改用 CSS 三角形：
+
+```js
+const tri = document.createElement("span");
+tri.style.cssText = [
+  "display:inline-block", "width:0", "height:0",
+  "border-left:5px solid transparent",
+  "border-right:5px solid transparent",
+  "border-bottom:9px solid #C0392B",
+].join(";");
+```
+
+菜单图标同理，用 SVG `<polygon>` 画纯实心三角（不带 stroke、不带背景框），
+比依赖字体可靠。
 
 ## 15. `onMainWindowLoad` 在本插件上不触发
 
