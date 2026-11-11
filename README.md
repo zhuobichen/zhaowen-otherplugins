@@ -83,6 +83,22 @@ python sync_collections_to_tags.py --apply    # 写入
 
 幂等、单向：只增删以 `分类/` 开头的标签，不碰用户自己的标签。
 
+## 另一个脚本：为每个分类子集生成索引笔记
+
+`make_index_notes.py` 给每个分类子集写一篇汇总笔记：列出该子类全部文献，
+标题是 `zotero://select/library/items/KEY` 形式的可点击链接，后面跟该文献
+笔记的第一句。
+
+```powershell
+python make_index_notes.py --only 深度学习      # 先看某一个
+python make_index_notes.py --apply             # 全部写入
+```
+
+笔记会自动加入对应子集合并打上 `分类索引` 标签。重复运行是更新而不是新建。
+配合插件的「笔记置顶」特性：点 Category 列标题，索引笔记固定排第一，
+下面是该子类的全部文献。
+
+
 ---
 
 # 开发笔记：在 Zotero 10.0.8 上让自定义列真正显示出来
