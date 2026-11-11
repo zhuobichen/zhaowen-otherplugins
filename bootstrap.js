@@ -76,6 +76,9 @@ const SEPARATOR = " \u203a ";
 /** Tag that marks an item as important. */
 const IMPORTANT_TAG = "\u25b2";
 
+/** Synthetic category shown on note items (see pathForItem). */
+const INDEX_LABEL = "\u2605 \u5206\u7c7b\u7d22\u5f15";
+
 /**
  * Desired reading order for the taxonomy. Zotero's plugin API has no comparator
  * for custom columns -- the tree sorts by the string returned from
@@ -253,6 +256,26 @@ function renderCell(index, data, column, isFirstColumn, doc) {
     const segments = entry.split(SEPARATOR);
     const group = segments.length > 1 ? segments[0] : "";
     const leaf = segments[segments.length - 1];
+    // The index-note label is plain text: no pill, no border, black text.
+    if (!group && entry === INDEX_LABEL) {
+      const plain = document.createElement("span");
+      plain.textContent = INDEX_LABEL;
+      plain.title = "\u5206\u7c7b\u7d22\u5f15";
+      plain.style.cssText = [
+        "display:inline-block",
+        "padding:0 2px",
+        "font-size:0.85em",
+        "line-height:15px",
+        "font-weight:600",
+        "color:#000000",
+        "background:transparent",
+        "border:none",
+        "white-space:nowrap",
+      ].join(";");
+      cell.appendChild(plain);
+      continue;
+    }
+
     // The importance marker gets its own treatment: a filled red chip.
     if (!group && leaf === IMPORTANT_TAG) {
       const flag = document.createElement("span");
