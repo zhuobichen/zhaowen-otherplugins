@@ -100,3 +100,27 @@ conv.init(stream, "UTF-8", 0, 0xFFFD);
 ```
 
 不要用 `NetUtil.asyncFetch`：异步读取会和构建流程竞争，缓存还没读完就开始查了。
+
+## 打包后的三个致命坑
+
+**① zip 条目名必须用正斜杠。** .NET 的 `ZipFile.CreateFromDirectory` 在 Windows 上
+写成 `content\world.json`（反斜杠），而 ZIP 规范和 `nsIZipReader.getEntry` 都用正
+斜杠。`build.ps1` 改成用 `ZipArchive` 逐条 `CreateEntry`，手动把 `\` 换成 `/`。
+
+**② `Zotero.File.getContentsFromFile` 和 `nsIZipReader` 都不好用。**
+前者在这个版本不存在；后者的 `getInputStream` 即使 `getEntry` 成功也常报
+`NS_ERROR_FILE_NOT_FOUND`。能读 jar: URI 内文件的只有：
+
+```js
+Zotero.File.getContentsFromURL(_rootURI + "content/world.json");
+```
+
+**③ 占位符名会和运行时的字符串字面量撞车。** 模板里写 `const WORLD = __WORLD__;`
+同时代码里有 `.replace("__WORLD__", ...)`，Python 侧做 `shell.replace("__WORLD__", data)`
+时会把**两处**都替换掉，`.replace` 那行被 126 KB 数据撑成
+`.replace(""[[\"斐济\"...]]"")` —— 双重引号，语法错误。改用一个只有模板用的标记
+（`@@WORLD@@`）就分开了。
+
+**④ bootstrap.js 别塞大数组。** 把 126 KB 世界数据内联成 JS 数组字面量时文件
+305 KB，加载器直接拒绝求值：没有启动、没有日志、没有菜单、没有任何报错。抽成
+独立的 `content/world.json` 后降到 50 KB，一切正常。

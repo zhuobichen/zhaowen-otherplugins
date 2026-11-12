@@ -342,7 +342,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <script>
 
 const DATA = __DATA__;
-const WORLD = __WORLD__;
+const WORLD = @@WORLD@@;
 const items = DATA.items, edges = DATA.edges;
 const tip = document.getElementById('tip');
 
