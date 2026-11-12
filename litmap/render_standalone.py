@@ -722,11 +722,13 @@ document.getElementById('c-tim').addEventListener('mouseleave', hideTip);
 // with the study count written inside. A bubble would only say "somewhere near
 // here"; an outline says "this is the area studied".
 const REGION_STYLE = {
-  // Fills have to clear the base-map beige (#f4f1e8) by a wide margin, and the
-  // stroke has to survive a 1700 px canvas, so both are pushed well past what
-  // looks right in isolation.
-  country:  { stroke: '#1f3557', fill: 'rgba(31,53,87,.28)',  width: 2.8 },
-  province: { stroke: '#8f2f1c', fill: 'rgba(143,47,28,.36)', width: 3.6 },
+  // The fill has to read as a COLOUR, not as a slightly darker grey. Blending
+  // navy #1f3557 at 28% over the beige base gives rgb(184,188,191): the blue
+  // channel leads red by only 7, which the eye reads as neutral grey -- the
+  // map looked uncoloured even though the fill was there. NPG blue #3C5488 at
+  // 55% gives rgb(140,152,178), a lead of 38, which is unmistakably blue.
+  country:  { stroke: '#1f3557', fill: 'rgba(60,84,136,.55)',  width: 2.8 },
+  province: { stroke: '#8f2f1c', fill: 'rgba(143,47,28,.42)',  width: 3.6 },
 };
 
 function ringArea(ring) {
