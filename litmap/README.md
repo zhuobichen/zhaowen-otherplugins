@@ -56,3 +56,47 @@ function writeBytes(stream, bytes) {
 ## 输出示例
 
 280 篇文献 → 126 篇有库内引用关系 / 281 条边 / 154 篇孤立；17 个研究区域；1968–2026 年跨度。
+
+## 增量构建
+
+引用关系缓存在 Zotero 配置目录的 `litmap_citations_cache.json`（约 240 KB）。
+**工具**菜单有两个入口：
+
+| 菜单项 | 做什么 |
+|---|---|
+| 生成文献地图（增量） | 只查没见过的 DOI，其余直接复用 |
+| 重新构建文献地图（清空引用缓存） | 丢弃缓存重查全部 |
+
+实测 264 个 DOI：首次 170 秒，第二次 **12 秒**（含 Zotero 启动），日志里是
+`cache: 264 reused, 0 to fetch`。新增几篇文献只会多几次请求。
+
+**什么可以缓存、什么不能。** 两篇固定论文之间的引用关系不会变，所以能永久缓存。
+但 TF-IDF 投影不能缓存——IDF 是全局量，多一篇文献就会改变所有词的权重，二维布局
+随之移动是正确的行为。好在它只要几毫秒，重新算是合理的。
+
+**失败不写进缓存。** OpenCitations 超时或限流时返回 `null`，与「这篇没有参考文献」
+（空数组）区分开。`null` 不入缓存，下次构建会重试，而不是把一次网络故障记成事实。
+
+## 地理底图
+
+用 Natural Earth 110m 的真实国界，不是手描的方块。`compact_world.py` 把原始
+819 KB 的 GeoJSON 压到 125 KB：只留几何、坐标取两位小数（赤道附近约 1 km，
+已经细于 1440 px 画布能表达的分辨率）、去掉南极洲、环编码成扁平的
+`[lon,lat,lon,lat,...]` 数组。等距圆柱投影，与气泡用同一套坐标变换。
+
+## 读取配置目录文件
+
+`Zotero.File.getContentsFromFile` 在这个版本里**不存在**——调用会抛
+`TypeError`，而异常被 try/catch 吞掉后表现为「缓存永远读不到、每次都全量重查」。
+改用 `nsIFileInputStream` + `nsIConverterInputStream` 手动读 UTF-8：
+
+```js
+var stream = Cc["@mozilla.org/network/file-input-stream;1"]
+  .createInstance(Ci.nsIFileInputStream);
+stream.init(file, 0x01, 0, 0);
+var conv = Cc["@mozilla.org/intl/converter-input-stream;1"]
+  .createInstance(Ci.nsIConverterInputStream);
+conv.init(stream, "UTF-8", 0, 0xFFFD);
+```
+
+不要用 `NetUtil.asyncFetch`：异步读取会和构建流程竞争，缓存还没读完就开始查了。

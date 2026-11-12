@@ -25,90 +25,324 @@ TEMPLATE = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>文献地图</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>文献地图 · Literature Atlas</title>
 <style>
   :root{
-    --bg:#fbfbfd; --fg:#1b1d22; --muted:#6b7280; --line:#e3e6ec; --card:#fff;
-    --method:#3C5488; --application:#E64B35; --mutedc:#8491B4;
+    --paper:#f7f4ee;
+    --paper-2:#fffdf9;
+    --ink:#17181c;
+    --ink-2:#4a4d55;
+    --ink-3:#8a8d96;
+    --rule:#dfd9cd;
+    --rule-soft:#ece6da;
+    --method:#2f4a6d;
+    --application:#a63d2a;
+    --none:#8d8f96;
+    --ochre:#b8863b;
+    --serif:"Songti SC","Noto Serif SC","Source Han Serif SC",Georgia,"Times New Roman",serif;
+    --sans:"Inter Tight","Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,"SF Mono",Consolas,monospace;
   }
   *{box-sizing:border-box}
-  body{margin:0;font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
-       background:var(--bg);color:var(--fg)}
-  header{padding:18px 24px 0}
-  h1{margin:0 0 4px;font-size:19px;font-weight:650;letter-spacing:.01em}
-  .sub{color:var(--muted);font-size:13px}
-  nav{display:flex;gap:4px;padding:14px 24px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
-  nav button{border:0;background:none;padding:9px 14px;font:inherit;font-size:13.5px;color:var(--muted);
-             cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
-  nav button:hover{color:var(--fg)}
-  nav button.on{color:var(--fg);font-weight:600;border-bottom-color:var(--fg)}
-  main{padding:16px 24px 40px}
-  .panel{display:none}.panel.on{display:block}
-  .bar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px;
-       font-size:12.5px;color:var(--muted)}
-  .bar label{display:flex;gap:5px;align-items:center;cursor:pointer}
-  canvas{background:var(--card);border:1px solid var(--line);border-radius:10px;display:block;
-         width:100%;cursor:grab}
-  canvas:active{cursor:grabbing}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin-top:9px;color:var(--muted)}
-  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
-  #tip{position:fixed;pointer-events:none;background:#111318;color:#fff;font-size:12.5px;
-       padding:7px 10px;border-radius:7px;max-width:340px;opacity:0;transition:opacity .12s;
-       z-index:50;line-height:1.45}
-  .note{font-size:12.5px;color:var(--muted);margin-top:12px;max-width:900px}
-  .stat{font-variant-numeric:tabular-nums}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font:14px/1.6 var(--sans);
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      linear-gradient(to right, rgba(23,24,28,.028) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(23,24,28,.028) 1px, transparent 1px);
+    background-size:46px 46px;
+    background-position:-1px -1px;
+    min-height:100vh;
+  }
+  .masthead{
+    border-bottom:1px solid var(--ink);
+    padding:26px 42px 0;
+    position:relative;
+  }
+  .kicker{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:.22em;
+    text-transform:uppercase;
+    color:var(--ink-3);
+    margin-bottom:14px;
+  }
+  h1{
+    font-family:var(--serif);
+    font-weight:500;
+    font-size:clamp(30px,4.2vw,52px);
+    line-height:1.02;
+    letter-spacing:-.018em;
+    margin:0 0 6px;
+  }
+  h1 em{font-style:italic;color:var(--application)}
+  .dek{
+    font-family:var(--serif);
+    font-size:15.5px;
+    font-style:italic;
+    color:var(--ink-2);
+    margin:0 0 22px;
+    max-width:70ch;
+  }
+  .figures{
+    display:flex;
+    gap:38px;
+    padding:15px 0 17px;
+    border-top:1px solid var(--rule);
+    flex-wrap:wrap;
+  }
+  .fig{display:flex;flex-direction:column;gap:1px}
+  .fig b{
+    font-family:var(--serif);
+    font-size:23px;
+    font-weight:500;
+    line-height:1.1;
+    font-variant-numeric:tabular-nums;
+    letter-spacing:-.015em;
+  }
+  .fig span{
+    font-family:var(--mono);
+    font-size:9.5px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--ink-3);
+  }
+  nav{
+    display:flex;
+    gap:0;
+    padding:0 42px;
+    border-bottom:1px solid var(--rule);
+    background:rgba(255,253,249,.55);
+    position:sticky;
+    top:0;
+    z-index:20;
+    backdrop-filter:blur(9px);
+  }
+  nav button{
+    appearance:none;
+    border:0;
+    background:none;
+    padding:15px 22px 13px;
+    margin:0;
+    font-family:var(--sans);
+    font-size:12.5px;
+    font-weight:500;
+    letter-spacing:.055em;
+    text-transform:uppercase;
+    color:var(--ink-3);
+    cursor:pointer;
+    border-bottom:2px solid transparent;
+    margin-bottom:-1px;
+    transition:color .16s ease,border-color .16s ease;
+    position:relative;
+  }
+  nav button:hover{color:var(--ink)}
+  nav button.on{color:var(--ink);border-bottom-color:var(--application)}
+  nav button:focus-visible{outline:2px solid var(--method);outline-offset:-4px}
+  main{padding:0 42px 72px}
+  .panel{display:none}
+  .panel.on{display:block}
+  .sheet{
+    background:var(--paper-2);
+    border:1px solid var(--rule);
+    border-radius:2px;
+    box-shadow:0 1px 0 var(--rule-soft),0 14px 34px -26px rgba(23,24,28,.34);
+    margin-top:26px;
+    position:relative;
+  }
+  .bar{
+    display:flex;
+    gap:20px;
+    align-items:center;
+    flex-wrap:wrap;
+    padding:13px 20px;
+    border-bottom:1px solid var(--rule-soft);
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--ink-3);
+    position:relative;
+    z-index:1;
+  }
+  .bar label{
+    display:inline-flex;
+    gap:7px;
+    align-items:center;
+    cursor:pointer;
+    color:var(--ink-2);
+    text-transform:none;
+    letter-spacing:.01em;
+    font-family:var(--sans);
+    font-size:12.5px;
+    user-select:none;
+  }
+  .bar input[type=checkbox]{
+    appearance:none;
+    width:14px;height:14px;
+    border:1px solid var(--ink-3);
+    border-radius:2px;
+    background:var(--paper-2);
+    cursor:pointer;
+    position:relative;
+    transition:background .13s ease,border-color .13s ease;
+  }
+  .bar input[type=checkbox]:checked{background:var(--ink);border-color:var(--ink)}
+  .bar input[type=checkbox]:checked::after{
+    content:"";
+    position:absolute;
+    left:4px;top:1px;
+    width:4px;height:8px;
+    border:solid var(--paper-2);
+    border-width:0 1.6px 1.6px 0;
+    transform:rotate(42deg);
+  }
+  .bar .stat{margin-left:auto;color:var(--ink-2);font-variant-numeric:tabular-nums}
+  canvas{display:block;width:100%;position:relative;z-index:1;cursor:crosshair}
+  .caption{
+    padding:13px 20px 16px;
+    border-top:1px solid var(--rule-soft);
+    font-family:var(--serif);
+    font-size:12.8px;
+    line-height:1.62;
+    color:var(--ink-2);
+    max-width:96ch;
+    position:relative;
+    z-index:1;
+  }
+  .caption b{font-weight:600;color:var(--ink);font-style:normal}
+  .legend{
+    display:flex;
+    gap:18px;
+    flex-wrap:wrap;
+    padding:13px 20px;
+    border-top:1px solid var(--rule-soft);
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:.04em;
+    color:var(--ink-2);
+    position:relative;
+    z-index:1;
+  }
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto}
+  .legend .lg-note{
+    color:var(--ink-3);
+    font-style:italic;
+    font-family:var(--serif);
+    letter-spacing:0;
+    font-size:11.5px;
+  }
+  #tip{
+    position:fixed;
+    pointer-events:none;
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--sans);
+    font-size:12.5px;
+    line-height:1.5;
+    padding:9px 12px;
+    border-radius:2px;
+    max-width:360px;
+    opacity:0;
+    transform:translateY(3px);
+    transition:opacity .13s ease,transform .13s ease;
+    z-index:60;
+    box-shadow:0 10px 26px -12px rgba(0,0,0,.5);
+  }
+  #tip.on{opacity:1;transform:translateY(0)}
+  #tip b{font-family:var(--serif);font-weight:500;font-size:13.5px}
+  @keyframes rise{
+    from{opacity:0;transform:translateY(11px)}
+    to{opacity:1;transform:translateY(0)}
+  }
+  .masthead>*{animation:rise .62s cubic-bezier(.22,.68,.28,1) both}
+  .masthead>*:nth-child(1){animation-delay:.02s}
+  .masthead>*:nth-child(2){animation-delay:.08s}
+  .masthead>*:nth-child(3){animation-delay:.14s}
+  .masthead>*:nth-child(4){animation-delay:.20s}
+  nav{animation:rise .62s cubic-bezier(.22,.68,.28,1) .26s both}
+  .panel.on .sheet{animation:rise .5s cubic-bezier(.22,.68,.28,1) both}
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+  @media (max-width:760px){
+    .masthead{padding:20px 20px 0}
+    nav{padding:0 20px;overflow-x:auto}
+    main{padding:0 20px 48px}
+    .figures{gap:24px}
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>文献地图</h1>
-  <div class="sub" id="sub"></div>
+
+<header class="masthead">
+  <div class="kicker">Zotero Library · Generated Atlas</div>
+  <h1>文献地图<em>.</em></h1>
+  <p class="dek">四个视角读同一个文献库：谁引用了谁、主题如何聚拢、方法在时间上怎样铺开、研究落在哪里。</p>
+  <div class="figures" id="figures"></div>
 </header>
+
 <nav>
   <button data-tab="rel" class="on">引用网络</button>
   <button data-tab="sem">语义地图</button>
   <button data-tab="tim">时间 × 分类</button>
   <button data-tab="geo">地理分布</button>
 </nav>
+
 <main>
   <section class="panel on" id="p-rel">
-    <div class="bar">
-      <label><input type="checkbox" id="relLabels"> 显示标题</label>
-      <label><input type="checkbox" id="relIsolated"> 包含无引用关系的文献</label>
-      <span class="stat" id="relStat"></span>
+    <div class="sheet">
+      <div class="bar">
+        <label><input type="checkbox" id="relLabels"> 显示标题</label>
+        <label><input type="checkbox" id="relIsolated"> 含孤立文献</label>
+        <span class="stat" id="relStat"></span>
+      </div>
+      <canvas id="c-rel" height="660"></canvas>
+      <div class="legend" id="relLegend"></div>
+      <div class="caption">边表示<b>本库内部的引用关系</b>，来自 OpenCitations COCI。箭头 A → B 意为 A 引用了 B；只有两端都在库内才画线，因此每条边都是可核实的引用，而非推断的相似度。点的大小是该文献在网络中的连接数。</div>
     </div>
-    <canvas id="c-rel" height="640"></canvas>
-    <div class="legend" id="relLegend"></div>
-    <div class="note">边表示「本库内的引用关系」，数据来自 OpenCitations COCI。箭头 A → B 表示 A 引用了 B；只有两端都在库内时才画线，因此这是可核实的引用，不是推断的相似度。</div>
   </section>
 
   <section class="panel" id="p-sem">
-    <div class="bar">
-      <label><input type="checkbox" id="semLabels"> 显示标题</label>
-      <span class="stat" id="semStat"></span>
+    <div class="sheet">
+      <div class="bar">
+        <label><input type="checkbox" id="semLabels"> 显示标题</label>
+        <span class="stat" id="semStat"></span>
+      </div>
+      <canvas id="c-sem" height="660"></canvas>
+      <div class="legend" id="semLegend"></div>
+      <div class="caption">用标题与笔记的 <b>TF-IDF 向量</b>做二维持投影，距离近表示用词相似。这是基于文本的描述性布局，不是引用关系；主题接近的文献会自然聚拢。</div>
     </div>
-    <canvas id="c-sem" height="640"></canvas>
-    <div class="legend" id="semLegend"></div>
-    <div class="note">用标题与笔记的 TF-IDF 向量做二维投影，距离近表示用词相似。这是基于文本的描述性布局，不是引用关系；主题接近的文献会聚在一起。</div>
   </section>
 
   <section class="panel" id="p-tim">
-    <div class="bar"><span class="stat" id="timStat"></span></div>
-    <canvas id="c-tim" height="620"></canvas>
-    <div class="note">横轴年份、纵轴分类。点的大小按引用数，可看出每个子类的时间覆盖与核心文献。</div>
+    <div class="sheet">
+      <div class="bar"><span class="stat" id="timStat"></span></div>
+      <canvas id="c-tim" height="640"></canvas>
+      <div class="caption">横轴年份、纵轴分类。点的大小按<b>引用数</b>缩放，可以看出每个子类的时间覆盖范围与核心文献。</div>
+    </div>
   </section>
 
   <section class="panel" id="p-geo">
-    <div class="bar"><span class="stat" id="geoStat"></span></div>
-    <canvas id="c-geo" height="620"></canvas>
-    <div class="legend" id="geoLegend"></div>
-    <div class="note">研究区域由标题与笔记中的地名识别，一篇文献可能属于多个区域。用于看研究地理的集中度。</div>
+    <div class="sheet">
+      <div class="bar"><span class="stat" id="geoStat"></span></div>
+      <canvas id="c-geo" height="640"></canvas>
+      <div class="legend" id="geoLegend"></div>
+      <div class="caption">研究区域由标题与笔记中的<b>地名识别</b>，一篇文献可能属于多个区域。纯方法论文通常没有研究区域，因此不出现在地图上。</div>
+    </div>
   </section>
 </main>
 <div id="tip"></div>
 
 <script>
+
 const DATA = __DATA__;
+const WORLD = __WORLD__;
 const items = DATA.items, edges = DATA.edges;
 const tip = document.getElementById('tip');
 
@@ -116,7 +350,7 @@ const tip = document.getElementById('tip');
 const METHOD = new Set(['统计地统计','机器学习','深度学习','数据同化与集合']);
 function familyOf(c){ return !c ? 'none' : (METHOD.has(c) ? 'method' : 'application'); }
 const COLORS = {
-  method:'#3C5488', application:'#E64B35', none:'#8491B4'
+  method:'#2f4a6d', application:'#a63d2a', none:'#8d8f96'
 };
 const SUBS = [...new Set(items.map(i=>i.collection).filter(Boolean))]
   .sort((a,b)=>{
@@ -134,11 +368,11 @@ function fitCanvas(cv){
   return {ctx, w, h};
 }
 function showTip(evt, html){
-  tip.innerHTML = html; tip.style.opacity = 1;
+  tip.innerHTML = html; tip.classList.add('on');
   tip.style.left = Math.min(evt.clientX+14, innerWidth-350)+'px';
   tip.style.top  = Math.min(evt.clientY+14, innerHeight-90)+'px';
 }
-function hideTip(){ tip.style.opacity = 0; }
+function hideTip(){ tip.classList.remove('on'); }
 function esc(s){ return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 document.querySelectorAll('nav button').forEach(b=>{
@@ -254,7 +488,7 @@ function drawRel(){
   ctx.lineWidth=1;
   for (const l of relState.links){
     const A=relState.nodes[l.a], B=relState.nodes[l.b];
-    ctx.strokeStyle='rgba(80,95,130,.22)';
+    ctx.strokeStyle='rgba(47,74,109,.20)';
     ctx.beginPath(); ctx.moveTo(px(A.x),py(A.y)); ctx.lineTo(px(B.x),py(B.y)); ctx.stroke();
   }
   const labels = document.getElementById('relLabels').checked;
@@ -265,7 +499,7 @@ function drawRel(){
     ctx.globalAlpha = nd.deg ? 1 : .42;
     ctx.fill(); ctx.globalAlpha = 1;
     if (labels && nd.deg){
-      ctx.fillStyle='#4b5563'; ctx.font='10px -apple-system,sans-serif';
+      ctx.fillStyle='#5a5d66'; ctx.font='10px Georgia,serif';
       ctx.fillText(it.title.slice(0,26), px(nd.x)+r+3, py(nd.y)+3);
     }
   }
@@ -398,7 +632,7 @@ function drawSem(){
     ctx.fillStyle=COLORS[familyOf(it.collection)]||COLORS.none;
     ctx.globalAlpha=.86; ctx.fill(); ctx.globalAlpha=1;
     if (labels){
-      ctx.fillStyle='#59606e'; ctx.font='9.5px -apple-system,sans-serif';
+      ctx.fillStyle='#5a5d66'; ctx.font='9.5px Georgia,serif';
       ctx.fillText(it.title.slice(0,22), px(xs[i])+5, py(ys[i])+3);
     }
   });
@@ -440,7 +674,7 @@ function drawTim(){
   const px=y=>left+(y-y0)/Math.max(1,(y1-y0))*(w-left-right);
   ctx.clearRect(0,0,w,h);
   // x grid
-  ctx.strokeStyle='#eef0f4'; ctx.fillStyle='#8b93a1'; ctx.font='11px sans-serif';
+  ctx.strokeStyle='#ece6da'; ctx.fillStyle='#8a8d96'; ctx.font='11px Georgia,serif';
   for (let y=y0; y<=y1; y+=(y1-y0>28?5:2)){
     const x=px(y);
     ctx.beginPath(); ctx.moveTo(x,top-6); ctx.lineTo(x,h-bottom); ctx.stroke();
@@ -448,11 +682,11 @@ function drawTim(){
   }
   rows.forEach((name,ri)=>{
     const cy=top+rowH*ri+rowH/2;
-    ctx.fillStyle='#5b6270'; ctx.font='11.5px sans-serif';
+    ctx.fillStyle='#3b3e46'; ctx.font='11.5px Georgia,serif';
     ctx.textAlign='right';
     ctx.fillText(name.length>12?name.slice(0,11)+'…':name, left-10, cy+4);
     ctx.textAlign='left';
-    ctx.strokeStyle='#f2f4f7';
+    ctx.strokeStyle='#f2ede2';
     ctx.beginPath(); ctx.moveTo(left,cy); ctx.lineTo(w-right,cy); ctx.stroke();
     items.filter(it=>(it.collection||'(未分类)')===name && it.year).forEach(it=>{
       const x=px(it.year);
@@ -492,19 +726,6 @@ const REGION_XY = {
   '意大利':[12.5,42.5], '中东':[45,30], '澳洲':[134,-25],
   '非洲':[20,5], '南美':[-60,-15]
 };
-// Very coarse continent outlines (lon,lat) so the map reads as a map.
-const LAND = [
-  [[-168,66],[-140,70],[-100,72],[-60,60],[-55,48],[-70,42],[-82,26],[-97,17],[-106,23],[-118,33],[-124,48],[-135,58]],
-  [[-80,10],[-70,12],[-50,0],[-35,-6],[-38,-22],[-55,-34],[-70,-52],[-75,-40],[-72,-18],[-80,-4]],
-  [[-10,36],[0,44],[10,45],[28,41],[36,36],[34,31],[10,37]],
-  [[-18,15],[0,28],[10,32],[32,32],[44,12],[51,12],[42,-2],[40,-16],[35,-24],[19,-35],[12,-18],[8,4],[-8,5],[-17,14]],
-  [[26,-40],[10,-35],[40,12],[43,12],[35,-25]],
-  [[40,66],[60,70],[100,76],[140,72],[160,68],[140,55],[130,42],[122,32],[110,20],[100,10],[95,5],[80,8],[68,24],[60,26],[48,30],[45,42],[30,45],[28,60],[40,66]],
-  [[160,-10],[150,-25],[145,-38],[130,-32],[115,-22],[130,-12],[142,-10]],
-  [[-8,50],[-6,58],[-2,58],[0,53],[-5,50]],
-  [[44,-25],[50,-15],[47,-25]],
-  [[-22,64],[-14,66],[-18,70],[-24,66]]
-];
 function drawGeo(){
   const cv=document.getElementById('c-geo');
   const {ctx,w,h}=fitCanvas(cv);
@@ -521,7 +742,7 @@ function drawGeo(){
 
   ctx.clearRect(0,0,w,h);
   // graticule
-  ctx.strokeStyle='#f0f2f6'; ctx.fillStyle='#a3aab6'; ctx.font='9.5px sans-serif';
+  ctx.strokeStyle='#f0ebe0'; ctx.fillStyle='#a8a49a'; ctx.font='9.5px Georgia,serif';
   for (let lon=-180; lon<=180; lon+=30){
     ctx.beginPath(); ctx.moveTo(px(lon),py(LAT0)); ctx.lineTo(px(lon),py(LAT1)); ctx.stroke();
   }
@@ -529,28 +750,46 @@ function drawGeo(){
     ctx.beginPath(); ctx.moveTo(px(LON0),py(lat)); ctx.lineTo(px(LON1),py(lat)); ctx.stroke();
     ctx.fillText(lat+'°', pad-22, py(lat)+3);
   }
-  // land
-  ctx.fillStyle='#eef1f5'; ctx.strokeStyle='#dfe4ea'; ctx.lineWidth=1;
-  for (const poly of LAND){
+  // Real country outlines from Natural Earth 110m, projected the same way as
+  // the bubbles: equirectangular, so lon/lat map linearly to x/y.
+  ctx.fillStyle='#f1ede4';
+  ctx.strokeStyle='#ddd6c7';
+  ctx.lineWidth=.7;
+  for (const [zh, en, rings] of WORLD){
     ctx.beginPath();
-    poly.forEach(([lon,lat],i)=>{
-      const X=px(lon), Y=py(lat);
-      i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);
-    });
-    ctx.closePath(); ctx.fill(); ctx.stroke();
+    for (const ring of rings){
+      for (let i=0;i<ring.length;i+=2){
+        const X=px(ring[i]), Y=py(ring[i+1]);
+        i===0 ? ctx.moveTo(X,Y) : ctx.lineTo(X,Y);
+      }
+      ctx.closePath();
+    }
+    ctx.fill('evenodd');
+  }
+  ctx.strokeStyle='#ddd6c7';
+  for (const [zh, en, rings] of WORLD){
+    ctx.beginPath();
+    for (const ring of rings){
+      for (let i=0;i<ring.length;i+=2){
+        const X=px(ring[i]), Y=py(ring[i+1]);
+        i===0 ? ctx.moveTo(X,Y) : ctx.lineTo(X,Y);
+      }
+      ctx.closePath();
+    }
+    ctx.stroke();
   }
   // bubbles
   const rows=[...counts.entries()].filter(([n])=>REGION_XY[n])
     .sort((a,b)=>b[1]-a[1]);
   const placed=[];
-  ctx.font='600 11px sans-serif';
+  ctx.font='600 11px Georgia,serif';
   for (const [name,n] of rows){
     const [lon,lat]=REGION_XY[name];
     const r=6+Math.sqrt(n/maxN)*30;
     const cx=px(lon), cy=py(lat);
     ctx.beginPath(); ctx.arc(cx,cy,r,0,7);
-    ctx.fillStyle='rgba(60,84,136,.26)'; ctx.fill();
-    ctx.strokeStyle='rgba(60,84,136,.75)'; ctx.lineWidth=1.4; ctx.stroke();
+    ctx.fillStyle='rgba(47,74,109,.20)'; ctx.fill();
+    ctx.strokeStyle='rgba(47,74,109,.72)'; ctx.lineWidth=1.3; ctx.stroke();
 
     // Place the label in the first direction that does not collide with an
     // already placed one; East Asia packs six regions into ~10 degrees, so
@@ -578,10 +817,10 @@ function drawGeo(){
     const lyc=pick.ly+th/2;
     const far=Math.abs(pick.lx+tw/2-cx)>r+8 || Math.abs(lyc-cy)>r+10;
     if (far){
-      ctx.strokeStyle='rgba(60,84,136,.35)'; ctx.lineWidth=.9;
+      ctx.strokeStyle='rgba(47,74,109,.32)'; ctx.lineWidth=.9;
       ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(pick.lx+tw/2,lyc); ctx.stroke();
     }
-    ctx.fillStyle='#2b3550'; ctx.textAlign='left';
+    ctx.fillStyle='#23262d'; ctx.textAlign='left';
     ctx.fillText(text, pick.lx, pick.ly+th-2);
   }
   geoState={rows,proj:{px,py,r:n=>6+Math.sqrt(n/maxN)*30}};
@@ -589,7 +828,7 @@ function drawGeo(){
   if (lg){
     lg.innerHTML = rows.map(([name,n])=>{
       const fam = '';
-      return `<span style="color:#3b4252">${esc(name)} <b class="stat">${n}</b></span>`;
+      return `<span style="color:#3b3e46">${esc(name)} <b style="font-variant-numeric:tabular-nums">${n}</b></span>`;
     }).join('') + '<span style="opacity:.65">气泡按文献数缩放</span>';
   }
   const none=items.filter(i=>!(i.regions||[]).length).length;
@@ -628,8 +867,24 @@ if (!CanvasRenderingContext2D.prototype.roundRect){
 
 // ---------- boot ----------
 const draw = {rel:drawRel, sem:drawSem, tim:drawTim, geo:drawGeo};
-document.getElementById('sub').textContent =
-  `${items.length} 篇文献 · ${SUBS.length} 个分类 · 数据来自本机 Zotero 库`;
+
+// Masthead figures: the headline numbers, computed once from the payload.
+(function fillFigures(){
+  const years = items.map(i=>i.year).filter(Boolean);
+  const span = years.length ? `${Math.min(...years)}–${Math.max(...years)}` : '—';
+  const withDoi = items.filter(i=>i.doi).length;
+  const dead = items.filter(i=>!i.collection).length;
+  const figs = [
+    [items.length, '文献'],
+    [SUBS.length, '分类'],
+    [edges.length, '库内引用'],
+    [span, '年份跨度'],
+    [withDoi, '有 DOI'],
+  ];
+  document.getElementById('figures').innerHTML = figs.map(([v,k])=>
+    `<div class="fig"><b>${v}</b><span>${k}</span></div>`).join('');
+})();
+
 drawRel();
 window.addEventListener('resize', ()=>{ relState=null; drawRel(); });
 </script>
@@ -642,10 +897,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", default=str(DATA))
     parser.add_argument("--out", default=str(OUT))
+    parser.add_argument("--world", default=r"E:\CodeProject\其余工程\_world_compact.json")
     args = parser.parse_args()
 
     payload = json.loads(Path(args.data).read_text(encoding="utf-8"))
-    html = TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False))
+    world = Path(args.world).read_text(encoding="utf-8")
+    html = (TEMPLATE
+            .replace("__DATA__", json.dumps(payload, ensure_ascii=False))
+            .replace("__WORLD__", world))
     Path(args.out).write_text(html, encoding="utf-8")
     print(f"写出 {args.out}  ({Path(args.out).stat().st_size/1024:.0f} KB)")
     print(f"  文献 {len(payload['items'])}  引用边 {len(payload['edges'])}")
