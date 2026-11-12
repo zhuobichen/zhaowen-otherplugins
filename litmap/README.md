@@ -124,3 +124,31 @@ Zotero.File.getContentsFromURL(_rootURI + "content/world.json");
 **④ bootstrap.js 别塞大数组。** 把 126 KB 世界数据内联成 JS 数组字面量时文件
 305 KB，加载器直接拒绝求值：没有启动、没有日志、没有菜单、没有任何报错。抽成
 独立的 `content/world.json` 后降到 50 KB，一切正常。
+
+## 三层缓存与实测耗时
+
+| 层 | 缓存什么 | 命中后耗时 |
+|---|---|---|
+| 引用关系 | 每个 DOI 的参考文献列表，永久 | 264 个 DOI 全部命中 → **0 ms** |
+| 生成的 HTML | 整个库的指纹 | 未变化则跳过重写 → 省 ~45 ms |
+| 世界底图 | `content/world.json`，进程内解析一次 | 首次 176 国，之后走内存 |
+
+**真实的瓶颈是引用查询**：首次 264 个 DOI 要 170 秒，命中缓存后是 0。整张图现在
+从 108 ms 到 198 ms 就能出（不含 Zotero 启动）。所以 HTML 缓存本身省下的 45 ms
+并不关键，它主要保证两件事：文件 mtime 只在库真的变了才动，以及不用反复重写
+578 KB。
+
+### 指纹怎么算
+
+`djb2` 扫一遍 `JSON.stringify(payload)`，548 KB 大约个位数毫秒。指纹连同
+`builtAt` / `itemCount` / `edgeCount` 存在配置目录的 `litmap_state.json`（101 字节）。
+
+三条路径都实测过：
+
+```
+无缓存        -> wrote ... (render 45 ms, total 108 ms)
+库未变        -> unchanged (d0ecfe39-6ec4f), reusing existing HTML   # mtime 不动
+指纹不匹配    -> wrote ... (render 139 ms, total 198 ms)              # 指纹已更新
+```
+
+`重新构建文献地图（清空引用缓存）` 那个菜单项会同时清空引用缓存并强制重画。

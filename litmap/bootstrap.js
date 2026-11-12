@@ -308,6 +308,48 @@ function writeFile(path, text) {
   return file;
 }
 
+// ---------------------------------------------------------------- cache ----
+// The generated HTML is a pure function of the library payload, so it can be
+// keyed by a hash of that payload. If the hash is unchanged there is nothing to
+// rebuild and the existing file is reused -- which also keeps its mtime stable.
+function stateFile() {
+  try {
+    var ds = Components.classes["@mozilla.org/file/directory_service;1"]
+      .getService(Components.interfaces.nsIProperties);
+    var dir = ds.get("ProfD", Components.interfaces.nsIFile);
+    dir.append("litmap_state.json");
+    return dir;
+  } catch (e) { return null; }
+}
+
+function readState() {
+  try {
+    var f = stateFile();
+    if (!f || !f.exists()) return null;
+    var text = Zotero.File.getContentsFromURL("file:///" +
+      f.path.replace(/\\/g, "/"));
+    return JSON.parse(text);
+  } catch (e) { return null; }
+}
+
+function writeState(obj) {
+  try {
+    var f = stateFile();
+    if (!f) return;
+    writeFile(f.path, JSON.stringify(obj));
+  } catch (e) { log("state write failed: " + e); }
+}
+
+// djb2 over the serialised payload. 548 KB hashes in single-digit ms, far
+// cheaper than re-emitting and re-writing 578 KB of HTML for nothing.
+function fingerprint(str) {
+  var h = 5381;
+  for (var i = 0; i < str.length; i++) {
+    h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  }
+  return (h >>> 0).toString(16) + "-" + str.length.toString(16);
+}
+
 async function generate(win, forceRefresh) {
   var progress = new Zotero.ProgressWindow({ closeOnClick: false });
   progress.changeHeadline("文献地图");
@@ -315,27 +357,60 @@ async function generate(win, forceRefresh) {
   progress.addDescription("正在读取文献库…");
   progress.show();
 
+  var t0 = Date.now();
   try {
     var items = await collectItems();
-    log("items " + items.length);
+    var tRead = Date.now() - t0;
+    log("items " + items.length + " (" + tRead + " ms)");
+
     progress.addDescription("正在获取引用关系（已缓存的直接复用）…");
     progress.show();
     var edges = await buildEdges(items, progress, forceRefresh);
+    var tEdges = Date.now() - t0 - tRead;
     tagRegions(items);
-    log("edges " + edges.length);
+    log("edges " + edges.length + " (" + tEdges + " ms)");
 
     var payload = { items: items, edges: edges };
-    var html = TEMPLATE
-      .replace("__DATA__", JSON.stringify(payload))
-      .replace("@@WORLD@@", JSON.stringify(worldData()));
+    var payloadJson = JSON.stringify(payload);
+    var fp = fingerprint(payloadJson);
 
     var dir = Services.dirsvc.get("Docs", Components.interfaces.nsIFile);
     var path = dir.path + "\\文献地图.html";
+    var outFile = Zotero.File.pathToFile(path);
+    var prev = readState();
+    var unchanged = !forceRefresh && prev && prev.fingerprint === fp
+                    && outFile.exists();
+
+    if (unchanged) {
+      log("unchanged (" + fp + "), reusing existing HTML");
+      var total = Date.now() - t0;
+      progress.changeHeadline("文献地图未变化，直接打开");
+      progress.addDescription(items.length + " 篇 · " + edges.length +
+        " 条边 · 复用缓存 · " + total + " ms");
+      progress.show();
+      progress.startCloseTimer(4000);
+      Zotero.launchURL("file:///" + path.replace(/\\/g, "/"));
+      return;
+    }
+
+    var html = TEMPLATE
+      .replace("__DATA__", payloadJson)
+      .replace("@@WORLD@@", JSON.stringify(worldData()));
+    var tRender = Date.now() - t0 - tRead - tEdges;
     writeFile(path, html);
-    log("wrote " + path);
+    var total2 = Date.now() - t0;
+    log("wrote " + path + " (render " + tRender + " ms, total " + total2 + " ms)");
+
+    writeState({
+      fingerprint: fp,
+      builtAt: new Date().toISOString(),
+      itemCount: items.length,
+      edgeCount: edges.length,
+    });
 
     progress.changeHeadline("文献地图已生成");
-    progress.addDescription(items.length + " 篇 · " + edges.length + " 条引用边");
+    progress.addDescription(items.length + " 篇 · " + edges.length +
+      " 条引用边 · " + total2 + " ms");
     progress.show();
     progress.startCloseTimer(4000);
 
