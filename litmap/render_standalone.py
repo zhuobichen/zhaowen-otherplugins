@@ -202,7 +202,8 @@ TEMPLATE = r"""<!DOCTYPE html>
     transform:rotate(42deg);
   }
   .bar .stat{margin-left:auto;color:var(--ink-2);font-variant-numeric:tabular-nums}
-  canvas{display:block;width:100%;position:relative;z-index:1;cursor:crosshair}
+  canvas{display:block;width:100%;position:relative;z-index:1;cursor:crosshair;
+  height:calc(var(--cvh,0.46) * 100vw);min-height:420px;max-height:78vh}
   .caption{
     padding:13px 20px 16px;
     border-top:1px solid var(--rule-soft);
@@ -338,7 +339,7 @@ TEMPLATE = r"""<!DOCTYPE html>
         <label><input type="checkbox" id="relIsolated"> 含孤立文献</label>
         <span class="stat" id="relStat"></span>
       </div>
-      <canvas id="c-rel" height="660"></canvas>
+      <canvas id="c-rel" style="--cvh:0.46"></canvas>
       <div id="relPanel"></div>
   <div class="legend" id="relLegend"></div>
       <div class="caption">边表示<b>本库内部的引用关系</b>，来自 OpenCitations COCI。箭头 A → B 意为 A 引用了 B；只有两端都在库内才画线，因此每条边都是可核实的引用，而非推断的相似度。点的大小是该文献在网络中的连接数。</div>
@@ -351,7 +352,7 @@ TEMPLATE = r"""<!DOCTYPE html>
         <label><input type="checkbox" id="semLabels"> 显示标题</label>
         <span class="stat" id="semStat"></span>
       </div>
-      <canvas id="c-sem" height="660"></canvas>
+      <canvas id="c-sem" style="--cvh:0.46"></canvas>
       <div class="legend" id="semLegend"></div>
       <div class="caption">用标题与笔记的 <b>TF-IDF 向量</b>做二维持投影，距离近表示用词相似。这是基于文本的描述性布局，不是引用关系；主题接近的文献会自然聚拢。</div>
     </div>
@@ -360,7 +361,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   <section class="panel" id="p-tim">
     <div class="sheet">
       <div class="bar"><span class="stat" id="timStat"></span></div>
-      <canvas id="c-tim" height="640"></canvas>
+      <canvas id="c-tim" style="--cvh:0.44"></canvas>
       <div class="caption">横轴年份、纵轴分类。点的大小按<b>引用数</b>缩放，可以看出每个子类的时间覆盖范围与核心文献。</div>
     </div>
   </section>
@@ -368,7 +369,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   <section class="panel" id="p-geo">
     <div class="sheet">
       <div class="bar"><span class="stat" id="geoStat"></span></div>
-      <canvas id="c-geo" height="640"></canvas>
+      <canvas id="c-geo" style="--cvh:0.44"></canvas>
       <div class="legend" id="geoLegend"></div>
       <div class="caption">研究区域由标题与笔记中的<b>地名识别</b>，一篇文献可能属于多个区域。有文献的区域会<b>加粗其行政边界</b>，轮廓内的数字是该区域的文献数；中国子区域用暖色叠在国内轮廓之上。纯方法论文没有研究区域，因此不上图。</div>
     </div>
@@ -396,14 +397,71 @@ const SUBS = [...new Set(items.map(i=>i.collection).filter(Boolean))]
     return order.indexOf(a)-order.indexOf(b);
   });
 
+// A canvas needs its backing store to match its CSS box times the device pixel
+// ratio. Reading only clientWidth once meant the drawing kept its old scale
+// after browser zoom, and the hard-coded height attribute stopped the canvas
+// from growing with the window.
 function fitCanvas(cv){
   const dpr = window.devicePixelRatio || 1;
-  const w = cv.clientWidth, h = parseInt(cv.getAttribute('height'),10);
-  cv.width = w*dpr; cv.height = h*dpr;
+  const rect = cv.getBoundingClientRect();
+  const w = Math.max(1, Math.round(rect.width));
+  const h = Math.max(1, Math.round(rect.height));
+  const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+  if (cv.width !== bw || cv.height !== bh) {
+    cv.width = bw;
+    cv.height = bh;
+  }
   const ctx = cv.getContext('2d');
-  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   return {ctx, w, h};
 }
+
+// Greedy wrap to at most maxLines; the last line is ellipsized if it still
+// overflows. Used for the selected node so its title can be read in full.
+function wrapText(ctx, text, maxWidth, maxLines) {
+  const words = text.split(/\s+/);
+  const lines = [];
+  let cur = '';
+  for (let i = 0; i < words.length; i++) {
+    const cand = cur ? cur + ' ' + words[i] : words[i];
+    if (ctx.measureText(cand).width <= maxWidth || !cur) {
+      cur = cand;
+    } else {
+      lines.push(cur);
+      cur = words[i];
+      if (lines.length === maxLines - 1) {
+        // last allowed line: absorb the rest then ellipsize
+        cur = [cur].concat(words.slice(i)).join(' ');
+        break;
+      }
+    }
+  }
+  if (cur) lines.push(cur);
+  const out = lines.slice(0, maxLines);
+  if (out.length === maxLines) {
+    const last = out[maxLines - 1];
+    if (ctx.measureText(last).width > maxWidth || lines.length > maxLines) {
+      out[maxLines - 1] = clipText(ctx, last, maxWidth);
+    }
+  }
+  return out.filter(Boolean);
+}
+
+// Trim to the width that is actually free, with a real ellipsis. A hard slice
+// without one reads like the title itself is short.
+function clipText(ctx, text, maxWidth) {
+  if (maxWidth <= 12) return '';
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ell = '…';
+  let lo = 0, hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (ctx.measureText(text.slice(0, mid) + ell).width <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo > 0 ? text.slice(0, lo) + ell : '';
+}
+
 function showTip(evt, html){
   tip.innerHTML = html; tip.classList.add('on');
   tip.style.left = Math.min(evt.clientX+14, innerWidth-350)+'px';
@@ -577,7 +635,17 @@ function drawRel(){
     if ((labels && nd.deg && !dim) || isSel){
       ctx.fillStyle = dim ? 'rgba(90,93,102,.25)' : '#5a5d66';
       ctx.font = (isSel ? '600 11px' : '10px') + ' Georgia,serif';
-      ctx.fillText(it.title.slice(0,isSel?34:26), px(nd.x)+r+4, py(nd.y)+3);
+      const X = px(nd.x) + r + 4, Y = py(nd.y) + 3;
+      const room = w - (px(nd.x) + r + 8);
+      if (isSel){
+        // The selected node gets its whole title: wrap to as many lines as the
+        // canvas side allows (up to 3), and only ellipsize what still overflows.
+        const lines = wrapText(ctx, it.title, Math.max(120, Math.min(room, 360)), 4);
+        lines.forEach((ln, k)=> ctx.fillText(ln, X, Y + k*13));
+      } else {
+        const txt = clipText(ctx, it.title, Math.min(room, 300));
+        if (txt) ctx.fillText(txt, X, Y);
+      }
     }
   }
   relState.proj = {px,py};
@@ -820,7 +888,9 @@ function drawSem(){
     ctx.globalAlpha=.86; ctx.fill(); ctx.globalAlpha=1;
     if (labels){
       ctx.fillStyle='#5a5d66'; ctx.font='9.5px Georgia,serif';
-      ctx.fillText(it.title.slice(0,22), px(xs[i])+5, py(ys[i])+3);
+      const room = w - (px(xs[i]) + 10);
+      const txt = clipText(ctx, it.title, Math.min(room, 240));
+      if (txt) ctx.fillText(txt, px(xs[i])+5, py(ys[i])+3);
     }
   });
   semState.proj={px,py};
@@ -871,7 +941,7 @@ function drawTim(){
     const cy=top+rowH*ri+rowH/2;
     ctx.fillStyle='#3b3e46'; ctx.font='11.5px Georgia,serif';
     ctx.textAlign='right';
-    ctx.fillText(name.length>12?name.slice(0,11)+'…':name, left-10, cy+4);
+    ctx.fillText(clipText(ctx, name, left - 22), left-10, cy+4);
     ctx.textAlign='left';
     ctx.strokeStyle='#f2ede2';
     ctx.beginPath(); ctx.moveTo(left,cy); ctx.lineTo(w-right,cy); ctx.stroke();
@@ -1185,7 +1255,29 @@ const draw = {rel:drawRel, sem:drawSem, tim:drawTim, geo:drawGeo};
 })();
 
 drawRel();
-window.addEventListener('resize', ()=>{ relState=null; drawRel(); });
+// Window resize and browser zoom both invalidate the backing store. Zoom
+// changes devicePixelRatio without changing the layout box, so resize alone is
+// not enough -- watch the ratio too.
+function redrawAll(){
+  const active = document.querySelector('.panel.on');
+  const id = active ? active.id.replace('p-','') : 'rel';
+  if (id === 'rel'){ drawRel(); }
+  else if (id === 'sem'){ drawSem(); }
+  else if (id === 'tim'){ drawTim(); }
+  else if (id === 'geo'){ drawGeo(); }
+}
+let _lastDpr = window.devicePixelRatio || 1;
+function watchDpr(){
+  const now = window.devicePixelRatio || 1;
+  if (now !== _lastDpr){ _lastDpr = now; redrawAll(); }
+  requestAnimationFrame(watchDpr);
+}
+window.addEventListener('resize', ()=>{ relState=null; redrawAll(); });
+if (window.ResizeObserver){
+  const ro = new ResizeObserver(()=>{ relState=null; redrawAll(); });
+  document.querySelectorAll('canvas').forEach(c=>ro.observe(c));
+}
+requestAnimationFrame(watchDpr);
 </script>
 </body>
 </html>
