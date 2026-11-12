@@ -101,6 +101,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   <section class="panel" id="p-geo">
     <div class="bar"><span class="stat" id="geoStat"></span></div>
     <canvas id="c-geo" height="620"></canvas>
+    <div class="legend" id="geoLegend"></div>
     <div class="note">研究区域由标题与笔记中的地名识别，一篇文献可能属于多个区域。用于看研究地理的集中度。</div>
   </section>
 </main>
@@ -541,17 +542,56 @@ function drawGeo(){
   // bubbles
   const rows=[...counts.entries()].filter(([n])=>REGION_XY[n])
     .sort((a,b)=>b[1]-a[1]);
+  const placed=[];
+  ctx.font='600 11px sans-serif';
   for (const [name,n] of rows){
     const [lon,lat]=REGION_XY[name];
     const r=6+Math.sqrt(n/maxN)*30;
-    ctx.beginPath(); ctx.arc(px(lon),py(lat),r,0,7);
+    const cx=px(lon), cy=py(lat);
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,7);
     ctx.fillStyle='rgba(60,84,136,.26)'; ctx.fill();
     ctx.strokeStyle='rgba(60,84,136,.75)'; ctx.lineWidth=1.4; ctx.stroke();
-    ctx.fillStyle='#2b3550'; ctx.font='600 11px sans-serif'; ctx.textAlign='center';
-    ctx.fillText(`${name} ${n}`, px(lon), py(lat)-r-5);
-    ctx.textAlign='left';
+
+    // Place the label in the first direction that does not collide with an
+    // already placed one; East Asia packs six regions into ~10 degrees, so
+    // a fixed "above" position overlaps badly.
+    const text=`${name} ${n}`;
+    const tw=ctx.measureText(text).width, th=12;
+    const cands=[
+      [cx-tw/2, cy-r-6-th],
+      [cx-tw/2, cy+r+2],
+      [cx+r+5, cy-th/2],
+      [cx-r-5-tw, cy-th/2],
+      [cx-tw/2, cy-r-20-th],
+      [cx-tw/2, cy+r+16],
+    ];
+    let pick=null;
+    for (const [lx,ly] of cands){
+      const box={x:lx-2, y:ly-2, w:tw+4, h:th+4};
+      const hit=placed.some(p=>!(box.x+box.w<p.x||p.x+p.w<box.x||
+                                 box.y+box.h<p.y||p.y+p.h<box.y));
+      if (!hit){ pick={lx,ly,box}; break; }
+    }
+    if (!pick) continue;             // no room: the legend below still lists it
+    placed.push(pick.box);
+    // leader line when the label had to move away from the bubble
+    const lyc=pick.ly+th/2;
+    const far=Math.abs(pick.lx+tw/2-cx)>r+8 || Math.abs(lyc-cy)>r+10;
+    if (far){
+      ctx.strokeStyle='rgba(60,84,136,.35)'; ctx.lineWidth=.9;
+      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(pick.lx+tw/2,lyc); ctx.stroke();
+    }
+    ctx.fillStyle='#2b3550'; ctx.textAlign='left';
+    ctx.fillText(text, pick.lx, pick.ly+th-2);
   }
   geoState={rows,proj:{px,py,r:n=>6+Math.sqrt(n/maxN)*30}};
+  const lg=document.getElementById('geoLegend');
+  if (lg){
+    lg.innerHTML = rows.map(([name,n])=>{
+      const fam = '';
+      return `<span style="color:#3b4252">${esc(name)} <b class="stat">${n}</b></span>`;
+    }).join('') + '<span style="opacity:.65">气泡按文献数缩放</span>';
+  }
   const none=items.filter(i=>!(i.regions||[]).length).length;
   document.getElementById('geoStat').textContent =
     `${rows.length} 个区域 · ${none} 篇未识别出区域（地图上不显示）`;
