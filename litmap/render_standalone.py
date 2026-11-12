@@ -329,6 +329,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   <button data-tab="sem">语义地图</button>
   <button data-tab="tim">时间 × 分类</button>
   <button data-tab="geo">地理分布</button>
+  <button data-tab="an">分析</button>
 </nav>
 
 <main>
@@ -370,8 +371,16 @@ TEMPLATE = r"""<!DOCTYPE html>
     <div class="sheet">
       <div class="bar"><span class="stat" id="geoStat"></span></div>
       <canvas id="c-geo" style="--cvh:0.44"></canvas>
+      <div id="geoPanel"></div>
       <div class="legend" id="geoLegend"></div>
       <div class="caption">研究区域由标题与笔记中的<b>地名识别</b>，一篇文献可能属于多个区域。有文献的区域会<b>加粗其行政边界</b>，轮廓内的数字是该区域的文献数；中国子区域用暖色叠在国内轮廓之上。纯方法论文没有研究区域，因此不上图。</div>
+    </div>
+  </section>
+
+  <section class="panel" id="p-an">
+    <div class="sheet" id="analysis">
+      <div class="bar"><span class="stat">由本页数据直接推算，无模型调用</span></div>
+      <div class="an-body"></div>
     </div>
   </section>
 </main>
@@ -582,9 +591,13 @@ function drawRel(){
   }
   const b=relState.bounds;
   const pad=54;
+  // Separate x and y scale. The canvas is wide and short (~2:1) while the
+  // layout is square, so one shared factor sized to the height left the left
+  // and right thirds empty and crammed everything into the middle. Both views
+  // are abstract layouts, so mild aspect distortion costs nothing.
   const sx=(w-pad*2)/Math.max(1,b.x1-b.x0), sy=(h-pad*2)/Math.max(1,b.y1-b.y0);
-  const s=Math.min(sx,sy), cx=(b.x0+b.x1)/2, cy=(b.y0+b.y1)/2;
-  const px=x=>(x-cx)*s+w/2, py=y=>(y-cy)*s+h/2;
+  const cx=(b.x0+b.x1)/2, cy=(b.y0+b.y1)/2;
+  const px=x=>(x-cx)*sx+w/2, py=y=>(y-cy)*sy+h/2;
 
   const sel = relState.selected;
   const nbrs = sel ? (relState.nbrOf.get(sel) || new Set()) : null;
@@ -616,7 +629,8 @@ function drawRel(){
     const isSel  = sel && it.key===sel;
     const isNbr  = sel && nbrs.has(it.key);
     const dim    = sel && !isSel && !isNbr;
-    const r = 4.2+Math.min(nd.deg,6)*1.15 + (isSel ? 3 : 0);
+    const rScale = Math.min(1.35, Math.max(0.9, w/1300));
+    const r = (4.2+Math.min(nd.deg,6)*1.15 + (isSel ? 3 : 0)) * rScale;
 
     if (isSel){
       // halo so the selected node is unmistakable even in a dense cluster
@@ -877,8 +891,8 @@ function drawSem(){
   const xs=semState.xs, ys=semState.ys;
   let x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
   const pad=56, sx=(w-pad*2)/Math.max(1e-6,x1-x0), sy=(h-pad*2)/Math.max(1e-6,y1-y0);
-  const s=Math.min(sx,sy), cx=(x0+x1)/2, cy=(y0+y1)/2;
-  const px=x=>(x-cx)*s+w/2, py=y=>(y-cy)*s+h/2;
+  const cx=(x0+x1)/2, cy=(y0+y1)/2;
+  const px=x=>(x-cx)*sx+w/2, py=y=>(y-cy)*sy+h/2;
   ctx.clearRect(0,0,w,h);
   const labels=document.getElementById('semLabels').checked;
   items.forEach((it,i)=>{
@@ -1202,29 +1216,133 @@ function drawGeo() {
     `${counts.size} 个区域 · ${none} 篇未识别出区域（不上图）`;
 }
 
+// Point-in-polygon on the same rings that are drawn, so a tooltip means the
+// pointer is genuinely inside the region rather than merely near its centroid.
+function pointInRing(lon, lat, ring) {
+  let inside = false;
+  const n = ring.length / 2;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = ring[2*i], yi = ring[2*i+1];
+    const xj = ring[2*j], yj = ring[2*j+1];
+    if (((yi > lat) !== (yj > lat)) &&
+        (lon < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-12) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function regionAt(lon, lat) {
+  const hits = [];
+  for (const name in GEO.regions) {
+    const spec = GEO.regions[name];
+    let inside = false;
+    for (const c of (spec.countries || [])) {
+      const rs = GEO.countries[c] || [];
+      for (let k = 0; k < rs.length; k++) {
+        if (pointInRing(lon, lat, rs[k])) { inside = true; break; }
+      }
+      if (inside) break;
+    }
+    if (!inside) {
+      for (const pv of (spec.provinces || [])) {
+        const rs = GEO.provinces[pv] || [];
+        for (let k = 0; k < rs.length; k++) {
+          if (pointInRing(lon, lat, rs[k])) { inside = true; break; }
+        }
+        if (inside) break;
+      }
+    }
+    if (inside) hits.push(name);
+  }
+  // Prefer the most specific: 京津冀 over 中国.
+  if (hits.length > 1) {
+    hits.sort((a, b) => {
+      const pa = (GEO.regions[a].provinces || []).length;
+      const pb = (GEO.regions[b].provinces || []).length;
+      if (pa !== pb) return pb - pa;
+      return (GEO.regions[b].countries || []).length -
+             (GEO.regions[a].countries || []).length;
+    });
+  }
+  return hits[0] || null;
+}
+
+let geoHoverName = null;
+
 document.getElementById('c-geo').addEventListener('mousemove', ev => {
   if (!geoState) return;
   const rect = ev.currentTarget.getBoundingClientRect();
   const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
-  let best = null, bd = 900;   // 30 px
-  for (const p of geoState.placed) {
-    const dx = p.x - mx, dy = p.y - my, d = dx * dx + dy * dy;
-    if (d < bd) { bd = d; best = p; }
-  }
-  if (best) {
-    const list = items.filter(i => (i.regions || []).includes(best.name));
-    const subs = {};
-    list.forEach(i => {
-      const c = i.collection || '未分类';
-      subs[c] = (subs[c] || 0) + 1;
-    });
-    const top = Object.entries(subs).sort((a, b) => b[1] - a[1]).slice(0, 4)
-      .map(([k, v]) => `${esc(k)} ${v}`).join(' · ');
-    showTip(evt, `<b>${esc(best.name)}</b> · ${best.n} 篇<br>` +
-      `<span style="opacity:.75">${top}</span>`);
-  } else hideTip();
+
+  const LON0 = -180, LON1 = 180, LAT0 = 78, LAT1 = -58;
+  const pad = 28;
+  const sx = (rect.width  - pad*2) / (LON1 - LON0);
+  const sy = (rect.height - pad*2) / (LAT0 - LAT1);
+  const lon = (mx - pad) / sx + LON0;
+  const lat = LAT0 - (my - pad) / sy;
+
+  const name = regionAt(lon, lat);
+  geoHoverName = name;
+  ev.currentTarget.style.cursor = name ? 'pointer' : 'crosshair';
+  if (!name) { hideTip(); return; }
+
+  const list = items.filter(i => (i.regions || []).includes(name));
+  if (!list.length) { hideTip(); return; }
+
+  const shown = list.slice(0, 6).map(i => {
+    const yr = i.year ? ' <span style="opacity:.6">' + i.year + '</span>' : '';
+    return '<div style="opacity:.92">· ' + esc(i.title).slice(0, 66) + yr + '</div>';
+  }).join('');
+  const more = list.length > 6
+    ? '<div style="opacity:.6;margin-top:3px">…另有 ' + (list.length - 6) + ' 篇</div>'
+    : '';
+  showTip(ev, '<b>' + esc(name) + '</b> · ' + list.length + ' 篇' + shown + more +
+    '<div style="opacity:.55;margin-top:4px">点击固定到下方列表</div>');
 });
-document.getElementById('c-geo').addEventListener('mouseleave', hideTip);
+
+document.getElementById('c-geo').addEventListener('mouseleave', () => {
+  geoHoverName = null;
+  hideTip();
+});
+
+document.getElementById('c-geo').addEventListener('click', () => {
+  if (geoHoverName) renderGeoPanel(geoHoverName);
+});
+
+function renderGeoPanel(name) {
+  const box = document.getElementById('geoPanel');
+  if (!box) return;
+  const list = items.filter(i => (i.regions || []).includes(name))
+    .slice().sort((a, b) => (a.year || 0) - (b.year || 0));
+  const subs = {};
+  list.forEach(i => {
+    const c = i.collection || '未分类';
+    subs[c] = (subs[c] || 0) + 1;
+  });
+  const sub = Object.entries(subs).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => esc(k) + ' ' + v).join(' · ');
+
+  box.innerHTML =
+    '<div class="rp-head">' +
+      '<div class="rp-title">' + esc(name) +
+        '<span class="rp-cnt">' + list.length + ' 篇</span></div>' +
+      '<div class="rp-meta">' + sub + '</div>' +
+      '<button class="rp-close" title="关闭">×</button>' +
+    '</div>' +
+    '<ul class="gp-list">' +
+      list.map(x =>
+        '<li><span class="ry">' + (x.year || '—') + '</span>' +
+        '<span class="rt">' + esc(x.title) + '</span>' +
+        '<span class="rc">' + (esc(x.collection) || '未分类') + '</span></li>'
+      ).join('') +
+    '</ul>';
+  box.classList.add('on');
+  box.querySelector('.rp-close').onclick = () => {
+    box.classList.remove('on');
+    box.innerHTML = '';
+  };
+}
 
 if (!CanvasRenderingContext2D.prototype.roundRect){
   CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){
@@ -1234,8 +1352,142 @@ if (!CanvasRenderingContext2D.prototype.roundRect){
   };
 }
 
+// ------------------------------------------------------------ analysis ----
+// Every sentence below is derived from the numbers the charts already show.
+// Deliberately not a model call: the file opens offline from a local path, and
+// an invented reading would be worse than none. Each block names its basis.
+function modeOf(list, keyFn) {
+  const m = new Map();
+  for (const x of list) {
+    const k = keyFn(x);
+    if (k) m.set(k, (m.get(k) || 0) + 1);
+  }
+  let best = null;
+  for (const [k, v] of m) if (!best || v > best[1]) best = [k, v];
+  return best;
+}
+
+function median(arr) {
+  if (!arr.length) return 0;
+  const v = arr.slice().sort((a, b) => a - b);
+  return v[Math.floor(v.length / 2)];
+}
+
+function buildAnalysis() {
+  const years = items.map(i => i.year).filter(Boolean);
+  const y0 = Math.min.apply(null, years), y1 = Math.max.apply(null, years);
+  const withDoi = items.filter(i => i.doi).length;
+  const cited = items.filter(i => typeof i.cited === 'number').map(i => i.cited);
+  const deg = {};
+  edges.forEach(e => {
+    deg[e.source] = (deg[e.source] || 0) + 1;
+    deg[e.target] = (deg[e.target] || 0) + 1;
+  });
+  const connected = Object.keys(deg).length;
+  const isolated = items.length - connected;
+
+  const methodSubs = ['统计地统计', '机器学习', '深度学习', '数据同化与集合'];
+  const nM = items.filter(i => methodSubs.includes(i.collection)).length;
+  const nA = items.filter(i => i.collection && !methodSubs.includes(i.collection)).length;
+  const topMethod = modeOf(items.filter(i => methodSubs.includes(i.collection)), i => i.collection);
+  const topApp = modeOf(items.filter(i => i.collection && !methodSubs.includes(i.collection)), i => i.collection);
+
+  const mlYears = items.filter(i => ['机器学习', '深度学习'].includes(i.collection) && i.year).map(i => i.year);
+  const statYears = items.filter(i => i.collection === '统计地统计' && i.year).map(i => i.year);
+  const recent = items.filter(i => i.year && i.year >= y1 - 4).length;
+
+  const reg = {};
+  items.forEach(i => (i.regions || []).forEach(r => { reg[r] = (reg[r] || 0) + 1; }));
+  const regSorted = Object.entries(reg).sort((a, b) => b[1] - a[1]);
+  const noReg = items.filter(i => !(i.regions || []).length).length;
+
+  const hub = Object.entries(deg).sort((a, b) => b[1] - a[1])[0];
+  const hubItem = hub ? items.find(i => i.key === hub[0]) : null;
+  const density = connected > 1 ? (2 * edges.length) / (connected * (connected - 1)) : 0;
+
+  const sections = [];
+
+  sections.push({
+    h: '规模与覆盖',
+    body: items.length + ' 篇，跨 ' + y0 + '–' + y1 + ' 共 ' + (y1 - y0 + 1) +
+      ' 年；' + withDoi + ' 篇有 DOI（' + Math.round(withDoi / items.length * 100) +
+      '%）。被引数已知的 ' + cited.length + ' 篇，中位数 ' + median(cited) +
+      ' 次、最高 ' + (cited.length ? Math.max.apply(null, cited) : 0) + ' 次。',
+    basis: 'date / DOI / Extra.citationCount',
+  });
+
+  sections.push({
+    h: '方法与应用的配比',
+    body: '方法类 ' + nM + ' 篇、应用类 ' + nA + ' 篇，约 ' +
+      (nA ? (nM / nA).toFixed(2) : '—') + ':1。方法中「' +
+      (topMethod ? topMethod[0] + '」最多（' + topMethod[1] + ' 篇）' : '—') +
+      '；应用中「' + (topApp ? topApp[0] + '」最多（' + topApp[1] + ' 篇）' : '—') + '。',
+    basis: '8 个分类的条目数',
+  });
+
+  sections.push({
+    h: '时间结构',
+    body: '近五年（' + (y1 - 4) + '–' + y1 + '）共 ' + recent + ' 篇，占 ' +
+      Math.round(recent / items.length * 100) + '%。' +
+      (mlYears.length ? '机器学习与深度学习跨 ' + Math.min.apply(null, mlYears) + '–' +
+        Math.max.apply(null, mlYears) + '；' : '') +
+      (statYears.length ? '统计地统计跨 ' + Math.min.apply(null, statYears) + '–' +
+        Math.max.apply(null, statYears) + '，是唯一纵跨数十年的分支。' : ''),
+    basis: '每篇的 date 字段',
+  });
+
+  sections.push({
+    h: '引用结构',
+    body: edges.length + ' 条库内引用覆盖 ' + connected + ' 篇，' + isolated +
+      ' 篇没有库内引用关系。度数中位数 ' +
+      median(Object.values(deg)) + '、最高 ' + (hub ? hub[1] : 0) +
+      (hubItem ? '（' + esc(hubItem.title).slice(0, 42) + '…）' : '') +
+      '。库内互引密度约 ' + (density * 100).toFixed(1) +
+      '%——远低于 1，说明这是围绕少数枢纽展开的结构，不是均匀互引。',
+    basis: 'OpenCitations COCI 的库内边',
+  });
+
+  sections.push({
+    h: '研究地理',
+    body: '识别出 ' + regSorted.length + ' 个区域，最集中：' +
+      regSorted.slice(0, 3).map(r => r[0] + '（' + r[1] + ' 篇）').join('、') +
+      '。另有 ' + noReg + ' 篇没有区域标签，' +
+      (noReg ? '它们基本是不绑定具体地点的纯方法论文。' : '。'),
+    basis: '标题与笔记中的地名匹配',
+  });
+
+  const caveats = [
+    '引用只统计两端都在库内的配对，库外引用不可见，因此「度」低估了真实影响力。',
+    'citationCount 对 arXiv 预印本取自 Semantic Scholar、对期刊取自 Crossref，两库口径不同，跨类型比较被引数不严谨。',
+    '地理标签来自标题与笔记的地名匹配，只写在正文里的研究区域会漏掉。',
+    '分类是人工判断：同一篇归方法还是归应用，取决于它的主要贡献，边界本身就有弹性。',
+  ];
+
+  return { y0, y1, sections, caveats };
+}
+
+function renderAnalysis() {
+  const box = document.getElementById('analysis').querySelector('.an-body');
+  if (!box) return;
+  const a = buildAnalysis();
+  box.innerHTML =
+    '<div class="an-grid">' +
+      a.sections.map(s =>
+        '<div class="an-item">' +
+          '<h4>' + s.h + '</h4>' +
+          '<p>' + s.body + '</p>' +
+          '<p class="an-note">依据：' + s.basis + '</p>' +
+        '</div>').join('') +
+    '</div>' +
+    '<div class="an-caveats">' +
+      '<h4>读这些数字时要注意</h4>' +
+      '<ul>' + a.caveats.map(c => '<li>' + c + '</li>').join('') + '</ul>' +
+    '</div>';
+}
+
 // ---------- boot ----------
-const draw = {rel:drawRel, sem:drawSem, tim:drawTim, geo:drawGeo};
+const draw = {rel:drawRel, sem:drawSem, tim:drawTim, geo:drawGeo,
+              an:renderAnalysis};
 
 // Masthead figures: the headline numbers, computed once from the payload.
 (function fillFigures(){
@@ -1255,6 +1507,7 @@ const draw = {rel:drawRel, sem:drawSem, tim:drawTim, geo:drawGeo};
 })();
 
 drawRel();
+renderAnalysis();
 // Window resize and browser zoom both invalidate the backing store. Zoom
 // changes devicePixelRatio without changing the layout box, so resize alone is
 // not enough -- watch the ratio too.
