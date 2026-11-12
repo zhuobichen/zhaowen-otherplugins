@@ -350,7 +350,7 @@ function fingerprint(str) {
   return (h >>> 0).toString(16) + "-" + str.length.toString(16);
 }
 
-async function generate(win, forceRefresh) {
+async function generate(win, forceRefresh, clearCitations) {
   var progress = new Zotero.ProgressWindow({ closeOnClick: false });
   progress.changeHeadline("文献地图");
   progress.show();
@@ -365,7 +365,7 @@ async function generate(win, forceRefresh) {
 
     progress.addDescription("正在获取引用关系（已缓存的直接复用）…");
     progress.show();
-    var edges = await buildEdges(items, progress, forceRefresh);
+    var edges = await buildEdges(items, progress, clearCitations);
     var tEdges = Date.now() - t0 - tRead;
     tagRegions(items);
     log("edges " + edges.length + " (" + tEdges + " ms)");
@@ -378,17 +378,25 @@ async function generate(win, forceRefresh) {
     var path = dir.path + "\\文献地图.html";
     var outFile = Zotero.File.pathToFile(path);
     var prev = readState();
-    var unchanged = !forceRefresh && prev && prev.fingerprint === fp
-                    && outFile.exists();
+    var haveCache = outFile.exists();
 
-    if (unchanged) {
-      log("unchanged (" + fp + "), reusing existing HTML");
-      var total = Date.now() - t0;
-      progress.changeHeadline("文献地图未变化，直接打开");
-      progress.addDescription(items.length + " 篇 · " + edges.length +
-        " 条边 · 复用缓存 · " + total + " ms");
+    // Rebuilding is an explicit user action, never an automatic response to a
+    // changed library. If a map already exists it is opened as-is; a stale hint
+    // is shown so the user can decide whether to rebuild, but nothing is
+    // rewritten behind their back.
+    if (!forceRefresh && haveCache) {
+      var stale = !prev || prev.fingerprint !== fp;
+      var builtAt = prev && prev.builtAt
+        ? new Date(prev.builtAt).toLocaleString() : "未知";
+      log("cache hit (" + fp + (stale ? ", library changed since " + builtAt
+          : ", up to date") + "), opening without rebuild");
+      var msOpen = Date.now() - t0;
+      progress.changeHeadline(stale ? "文献地图已打开（库有变化）" : "文献地图已打开");
+      progress.addDescription(stale
+        ? "上次构建 " + builtAt + "，如要更新请用「重新构建文献地图」"
+        : items.length + " 篇 · " + edges.length + " 条边 · " + msOpen + " ms");
       progress.show();
-      progress.startCloseTimer(4000);
+      progress.startCloseTimer(stale ? 7000 : 4000);
       Zotero.launchURL("file:///" + path.replace(/\\/g, "/"));
       return;
     }
@@ -451,15 +459,7 @@ function installMenu(win) {
   var doc = win.document;
   var popup = findToolsPopup(doc);
   if (!popup) return false;
-  if (popup.querySelectorAll(".litmap-item").length >= 2) return true;
-
-  function makeItem(label, force) {
-    var mi = doc.createXULElement("menuitem");
-    mi.className = "menuitem-iconic litmap-item";
-    mi.setAttribute("label", label);
-    mi.addEventListener("command", function () { generate(win, force); });
-    return mi;
-  }
+  if (popup.querySelectorAll(".litmap-item").length >= 3) return true;
 
   var sep = popup.querySelector("menuseparator");
   var anchor = sep && sep.parentNode === popup ? sep : null;
@@ -468,10 +468,19 @@ function installMenu(win) {
     else popup.appendChild(el);
   }
 
-  // Incremental by default; the full rebuild is a separate entry so the common
-  // case never pays for a re-download.
-  place(makeItem("生成文献地图（增量）", false));
-  place(makeItem("重新构建文献地图（清空引用缓存）", true));
+  // Three levels, each an explicit user choice. Re-reading the library and
+  // discarding the citation cache are separate decisions because only the last
+  // one costs real time (264 DOIs ~ 170 s).
+  function makeItem3(label, rebuild, clearCit) {
+    var mi = doc.createXULElement("menuitem");
+    mi.className = "menuitem-iconic litmap-item";
+    mi.setAttribute("label", label);
+    mi.addEventListener("command", function () { generate(win, rebuild, clearCit); });
+    return mi;
+  }
+  place(makeItem3("打开或生成文献地图", false, false));
+  place(makeItem3("重新构建文献地图", true, false));
+  place(makeItem3("清空引用缓存并重查", true, true));
 
   log("menu inserted into " + (popup.id || popup.tagName));
   return true;
@@ -527,9 +536,19 @@ function maybeAutorun() {
     var f = ds.get("TmpD", Components.interfaces.nsIFile);
     f.append("litmap_autorun.flag");
     if (!f.exists()) return;
-    log("autorun flag found");
+    // The flag's contents select the mode, so all three menu paths can be
+    // exercised without clicking: "open", "rebuild", "recache".
+    var mode = "";
+    try {
+      var text = Zotero.File.getContentsFromURL("file:///" +
+        f.path.replace(/\\/g, "/"));
+      mode = (text || "").trim();
+    } catch (e) { /* empty flag == open */ }
+    log("autorun flag found, mode=" + (mode || "open"));
+    var rebuild = (mode === "rebuild" || mode === "recache");
+    var recache = (mode === "recache");
     Zotero.getMainWindow().setTimeout(function () {
-      generate(Zotero.getMainWindow(), false);
+      generate(Zotero.getMainWindow(), rebuild, recache);
     }, 2500);
   } catch (e) { log("autorun failed: " + e); }
 }

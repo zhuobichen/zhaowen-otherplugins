@@ -125,30 +125,38 @@ Zotero.File.getContentsFromURL(_rootURI + "content/world.json");
 305 KB，加载器直接拒绝求值：没有启动、没有日志、没有菜单、没有任何报错。抽成
 独立的 `content/world.json` 后降到 50 KB，一切正常。
 
-## 三层缓存与实测耗时
+## 缓存：只有用户点头才重建
 
-| 层 | 缓存什么 | 命中后耗时 |
-|---|---|---|
-| 引用关系 | 每个 DOI 的参考文献列表，永久 | 264 个 DOI 全部命中 → **0 ms** |
-| 生成的 HTML | 整个库的指纹 | 未变化则跳过重写 → 省 ~45 ms |
-| 世界底图 | `content/world.json`，进程内解析一次 | 首次 176 国，之后走内存 |
+菜单刻意分成三级，因为「重读文献库」和「丢弃引用缓存」是两件事，只有后者真的
+费时间（264 个 DOI 约 170 秒）：
 
-**真实的瓶颈是引用查询**：首次 264 个 DOI 要 170 秒，命中缓存后是 0。整张图现在
-从 108 ms 到 198 ms 就能出（不含 Zotero 启动）。所以 HTML 缓存本身省下的 45 ms
-并不关键，它主要保证两件事：文件 mtime 只在库真的变了才动，以及不用反复重写
-578 KB。
+| 菜单项 | 读库 | 清引用缓存 | 重写 HTML |
+|---|---|---|---|
+| 打开或生成文献地图 | 有缓存则不读 | 否 | 否 |
+| 重新构建文献地图 | 是 | 否 | 是 |
+| 清空引用缓存并重查 | 是 | 是 | 是 |
 
-### 指纹怎么算
+**库变化不会触发自动重建。** 每次点第一项时会重读库并算指纹，若与上次记录不同，
+只在进度窗口提示「上次构建 …，如要更新请用『重新构建文献地图』」，然后照旧打开
+原有的 HTML，一个字节都不写。
 
-`djb2` 扫一遍 `JSON.stringify(payload)`，548 KB 大约个位数毫秒。指纹连同
-`builtAt` / `itemCount` / `edgeCount` 存在配置目录的 `litmap_state.json`（101 字节）。
+这样做的理由：地图是给人看的快照，什么时候刷新应该由人决定，而不是检测到一点
+改动就悄悄换掉文件。
 
-三条路径都实测过：
+### 指纹
+
+`djb2` 扫一遍 `JSON.stringify(payload)`，548 KB 个位数毫秒。指纹连同 `builtAt` /
+`itemCount` / `edgeCount` 存在配置目录的 `litmap_state.json`（约 100 字节）。
+
+### 实测
 
 ```
-无缓存        -> wrote ... (render 45 ms, total 108 ms)
-库未变        -> unchanged (d0ecfe39-6ec4f), reusing existing HTML   # mtime 不动
-指纹不匹配    -> wrote ... (render 139 ms, total 198 ms)              # 指纹已更新
+无缓存        -> wrote ... (render 67 ms,  total 180 ms)
+库已变化      -> cache hit (…, library changed since 2026/11/12 12:29:46),
+                 opening without rebuild            # 文件 mtime 不动
+强制重建      -> wrote ... (render 131 ms, total 196 ms)
 ```
 
-`重新构建文献地图（清空引用缓存）` 那个菜单项会同时清空引用缓存并强制重画。
+三级时间拆开看：读库 40–45 ms、引用关系 11–29 ms（264 个 DOI 全命中）、渲染
+67–131 ms。**真正的瓶颈早就被引用缓存解决了**（首次 170 秒 → 现在 0），HTML
+缓存省下的那点时间只是附带效果。
