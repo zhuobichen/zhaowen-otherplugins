@@ -237,6 +237,42 @@ TEMPLATE = r"""<!DOCTYPE html>
     letter-spacing:0;
     font-size:11.5px;
   }
+  /* ---- selection panel ---- */
+  #relPanel{display:none;border-top:1px solid var(--rule);background:var(--paper-2);
+    position:relative;z-index:1;animation:rise .32s cubic-bezier(.22,.68,.28,1) both}
+  #relPanel.on{display:block}
+  .rp-head{padding:15px 20px 12px;border-bottom:1px solid var(--rule-soft);position:relative}
+  .rp-title{font-family:var(--serif);font-size:15.5px;line-height:1.35;color:var(--ink);
+    padding-right:34px;max-width:92ch}
+  .rp-meta{margin-top:5px;font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;
+    color:var(--ink-3)}
+  .rp-close{position:absolute;top:12px;right:16px;width:24px;height:24px;
+    border:1px solid var(--rule);background:var(--paper-2);border-radius:2px;
+    font-size:15px;line-height:1;color:var(--ink-2);cursor:pointer}
+  .rp-close:hover{background:var(--paper);color:var(--ink)}
+  .rp-cols{display:grid;grid-template-columns:1fr 1fr;gap:0}
+  .rp-col{padding:14px 20px 16px}
+  .rp-col + .rp-col{border-left:1px solid var(--rule-soft)}
+  .rp-col h4{margin:0 0 9px;font-family:var(--sans);font-size:11px;font-weight:600;
+    letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+  .rp-col h4 b{font-family:var(--serif);font-size:14px;color:var(--ink);margin-left:2px}
+  .rp-hint{text-transform:none;letter-spacing:0;font-weight:400;font-family:var(--serif);
+    font-style:italic;color:var(--ink-3);margin-left:5px}
+  .rp-col ul{list-style:none;margin:0;padding:0;max-height:224px;overflow-y:auto}
+  .rp-col li{display:flex;gap:7px;align-items:baseline;padding:5px 6px;margin:0 -6px;
+    border-radius:2px;font-size:12.5px;line-height:1.45;color:var(--ink-2);cursor:pointer}
+  .rp-col li:hover{background:var(--paper);color:var(--ink)}
+  .rk{color:var(--application);flex:0 0 auto;font-family:var(--mono);font-size:11px}
+  .ry{color:var(--ink-3);flex:0 0 auto;font-family:var(--mono);font-size:10.5px;
+    font-variant-numeric:tabular-nums}
+  .rt{flex:1 1 auto}
+  .rp-empty{margin:0;font-family:var(--serif);font-style:italic;font-size:12.5px;
+    color:var(--ink-3)}
+  .rp-foot{padding:10px 20px 14px;border-top:1px solid var(--rule-soft)}
+  .rp-foot a{font-family:var(--mono);font-size:10.5px;color:var(--method);
+    text-decoration:none;word-break:break-all}
+  .rp-foot a:hover{text-decoration:underline}
+
   #tip{
     position:fixed;
     pointer-events:none;
@@ -303,7 +339,8 @@ TEMPLATE = r"""<!DOCTYPE html>
         <span class="stat" id="relStat"></span>
       </div>
       <canvas id="c-rel" height="660"></canvas>
-      <div class="legend" id="relLegend"></div>
+      <div id="relPanel"></div>
+  <div class="legend" id="relLegend"></div>
       <div class="caption">边表示<b>本库内部的引用关系</b>，来自 OpenCitations COCI。箭头 A → B 意为 A 引用了 B；只有两端都在库内才画线，因此每条边都是可核实的引用，而非推断的相似度。点的大小是该文献在网络中的连接数。</div>
     </div>
   </section>
@@ -463,7 +500,14 @@ function layoutRelation(includeIsolated){
     }
     temp = Math.max(temp*0.985, 0.6);
   }
-  return {nodes, links, isolated};
+  // Key -> neighbour key set, so selection highlighting is O(deg) not O(edges).
+  const nbrOf = new Map();
+  for (const nd of nodes) nbrOf.set(nd.it.key, new Set());
+  for (const l of links){
+    nbrOf.get(nodes[l.a].it.key).add(nodes[l.b].it.key);
+    nbrOf.get(nodes[l.b].it.key).add(nodes[l.a].it.key);
+  }
+  return {nodes, links, isolated, nbrOf, selected: null};
 }
 function drawRel(){
   const cv = document.getElementById('c-rel');
@@ -484,55 +528,198 @@ function drawRel(){
   const s=Math.min(sx,sy), cx=(b.x0+b.x1)/2, cy=(b.y0+b.y1)/2;
   const px=x=>(x-cx)*s+w/2, py=y=>(y-cy)*s+h/2;
 
+  const sel = relState.selected;
+  const nbrs = sel ? (relState.nbrOf.get(sel) || new Set()) : null;
+
   ctx.clearRect(0,0,w,h);
+
+  // edges: dim unless they touch the selection
   ctx.lineWidth=1;
   for (const l of relState.links){
     const A=relState.nodes[l.a], B=relState.nodes[l.b];
-    ctx.strokeStyle='rgba(47,74,109,.20)';
+    const touch = sel && (A.it.key===sel || B.it.key===sel);
+    ctx.strokeStyle = sel
+      ? (touch ? 'rgba(31,53,87,.75)' : 'rgba(47,74,109,.06)')
+      : 'rgba(47,74,109,.20)';
+    ctx.lineWidth = touch ? 1.8 : 1;
     ctx.beginPath(); ctx.moveTo(px(A.x),py(A.y)); ctx.lineTo(px(B.x),py(B.y)); ctx.stroke();
   }
+  ctx.lineWidth = 1;
+
   const labels = document.getElementById('relLabels').checked;
-  for (const nd of relState.nodes){
-    const it=nd.it, r=4.2+Math.min(nd.deg,6)*1.15;
+  // draw faded nodes first so the highlighted ones sit on top
+  const order = relState.nodes.slice().sort((a,c)=>{
+    const ra = sel ? (a.it.key===sel ? 2 : (nbrs.has(a.it.key) ? 1 : 0)) : 1;
+    const rc = sel ? (c.it.key===sel ? 2 : (nbrs.has(c.it.key) ? 1 : 0)) : 1;
+    return ra-rc;
+  });
+  for (const nd of order){
+    const it=nd.it;
+    const isSel  = sel && it.key===sel;
+    const isNbr  = sel && nbrs.has(it.key);
+    const dim    = sel && !isSel && !isNbr;
+    const r = 4.2+Math.min(nd.deg,6)*1.15 + (isSel ? 3 : 0);
+
+    if (isSel){
+      // halo so the selected node is unmistakable even in a dense cluster
+      ctx.beginPath(); ctx.arc(px(nd.x),py(nd.y),r+7,0,7);
+      ctx.fillStyle='rgba(166,61,42,.18)'; ctx.fill();
+    }
     ctx.beginPath(); ctx.arc(px(nd.x),py(nd.y),r,0,7);
     ctx.fillStyle = COLORS[familyOf(it.collection)] || COLORS.none;
-    ctx.globalAlpha = nd.deg ? 1 : .42;
-    ctx.fill(); ctx.globalAlpha = 1;
-    if (labels && nd.deg){
-      ctx.fillStyle='#5a5d66'; ctx.font='10px Georgia,serif';
-      ctx.fillText(it.title.slice(0,26), px(nd.x)+r+3, py(nd.y)+3);
+    ctx.globalAlpha = dim ? .16 : (nd.deg ? 1 : .42);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (isSel){
+      ctx.strokeStyle='#a63d2a'; ctx.lineWidth=2; ctx.stroke(); ctx.lineWidth=1;
+    }
+
+    if ((labels && nd.deg && !dim) || isSel){
+      ctx.fillStyle = dim ? 'rgba(90,93,102,.25)' : '#5a5d66';
+      ctx.font = (isSel ? '600 11px' : '10px') + ' Georgia,serif';
+      ctx.fillText(it.title.slice(0,isSel?34:26), px(nd.x)+r+4, py(nd.y)+3);
     }
   }
   relState.proj = {px,py};
+
   document.getElementById('relStat').textContent =
     `${relState.nodes.length} 篇有引用关系 · ${relState.links.length} 条边` +
-    (relState.isolated ? ` · ${relState.isolated} 篇孤立未显示` : '');
-  // legend
+    (relState.isolated ? ` · ${relState.isolated} 篇孤立未显示` : '') +
+    (sel ? ` · 已选 1 篇` : ' · 点击节点查看邻居');
+
   const lg=document.getElementById('relLegend');
   lg.innerHTML = `<span><i style="background:${COLORS.method}"></i>方法类</span>
     <span><i style="background:${COLORS.application}"></i>应用类</span>
     <span><i style="background:${COLORS.none}"></i>无分类</span>
-    <span>点的大小 = 在该网络中的连接数</span>`;
+    <span>点的大小 = 连接数</span>
+    <span class="lg-note">点击节点查看它引用了谁、被谁引用；点空白处或按 Esc 取消</span>`;
+
+  renderRelPanel();
 }
-document.getElementById('relLabels').onchange = drawRel;
-document.getElementById('relIsolated').onchange = drawRel;
-document.getElementById('c-rel').addEventListener('mousemove', ev=>{
-  if (!relState?.proj) return;
-  const cv=ev.currentTarget, rect=cv.getBoundingClientRect();
-  const mx=ev.clientX-rect.left, my=ev.clientY-rect.top;
-  let best=null, bd=144;
+
+// ---------------------------------------------------------------- panel ----
+// Who cites the selection, and what it cites. Direction matters in a citation
+// graph, so the two are listed separately instead of as one neighbour set.
+function renderRelPanel(){
+  const box = document.getElementById('relPanel');
+  if (!box) return;
+  const sel = relState && relState.selected;
+  if (!sel){
+    box.classList.remove('on');
+    box.innerHTML = '';
+    return;
+  }
+  const node = relState.nodes.find(n=>n.it.key===sel);
+  if (!node) { box.classList.remove('on'); return; }
+  const it = node.it;
+
+  const into = [];   // papers that cite this one
+  const out = [];    // papers this one cites
+  for (const l of relState.links){
+    const A=relState.nodes[l.a].it.key, B=relState.nodes[l.b].it.key;
+    if (B===sel) into.push(relState.nodes[l.a].it);
+    else if (A===sel) out.push(relState.nodes[l.b].it);
+  }
+  const byYear = (a,b)=>(a.year||0)-(b.year||0);
+  into.sort(byYear); out.sort(byYear);
+
+  const row = (x, mark) => `
+    <li data-key="${x.key}">
+      <span class="rk">${mark}</span>
+      <span class="ry">${x.year||'—'}</span>
+      <span class="rt">${esc(x.title)}</span>
+    </li>`;
+
+  box.innerHTML = `
+    <div class="rp-head">
+      <div class="rp-title">${esc(it.title)}</div>
+      <div class="rp-meta">
+        ${it.year||'—'} · ${esc(it.collection)||'未分类'}
+        ${it.cited!=null?' · 被引 '+it.cited:''}
+        · 连接 ${node.deg}
+      </div>
+      <button class="rp-close" title="取消选择（Esc）">×</button>
+    </div>
+    <div class="rp-cols">
+      <div class="rp-col">
+        <h4>被引 <b>${into.length}</b> <span class="rp-hint">本文库内引用它的</span></h4>
+        ${into.length ? `<ul>${into.map(x=>row(x,'←')).join('')}</ul>`
+                      : '<p class="rp-empty">库内暂无其他文献引用它</p>'}
+      </div>
+      <div class="rp-col">
+        <h4>引用 <b>${out.length}</b> <span class="rp-hint">它引用的库内文献</span></h4>
+        ${out.length ? `<ul>${out.map(x=>row(x,'→')).join('')}</ul>`
+                     : '<p class="rp-empty">它没有引用库内其他文献</p>'}
+      </div>
+    </div>
+    <div class="rp-foot">
+      ${it.doi ? `<a href="https://doi.org/${encodeURIComponent(it.doi)}"
+                   target="_blank" rel="noopener">DOI ${esc(it.doi)}</a>` : ''}
+    </div>`;
+  box.classList.add('on');
+
+  box.querySelector('.rp-close').onclick = ()=>{ relState.selected=null; drawRel(); };
+  // Clicking a neighbour in the list walks to it.
+  box.querySelectorAll('li[data-key]').forEach(li=>{
+    li.onclick = ()=>{
+      relState.selected = li.dataset.key;
+      drawRel();
+      const p = relState.proj;
+      const n = relState.nodes.find(x=>x.it.key===relState.selected);
+      if (n && p) log_sel(n);
+    };
+  });
+}
+function log_sel(){ /* placeholder: panel scroll reset is handled below */ }
+
+// ------------------------------------------------------------- handlers ----
+function relNearest(ev){
+  if (!relState?.proj) return null;
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+  let best=null, bd=196;   // 14 px
   for (const nd of relState.nodes){
-    const dx=relState.proj.px(nd.x)-mx, dy=relState.proj.py(nd.y)-my;
-    const d=dx*dx+dy*dy;
+    const dx = relState.proj.px(nd.x)-mx, dy = relState.proj.py(nd.y)-my;
+    const d = dx*dx+dy*dy;
     if (d<bd){ bd=d; best=nd; }
   }
-  if (best){
-    showTip(evt, `<b>${esc(best.it.title).slice(0,80)}</b><br>
-      ${best.it.year||'—'} · ${esc(best.it.collection)||'未分类'}<br>
-      连接 ${best.deg} 条${best.it.cited!=null?' · 被引 '+best.it.cited:''}`);
-  } else hideTip();
+  return best;
+}
+
+document.getElementById('relLabels').onchange = drawRel;
+document.getElementById('relIsolated').onchange = ()=>{ relState.selected = null; drawRel(); };
+
+document.getElementById('c-rel').addEventListener('mousemove', ev=>{
+  const nd = relNearest(ev);
+  ev.currentTarget.style.cursor = nd ? 'pointer' : 'crosshair';
+  if (!nd){ hideTip(); return; }
+  const sel = relState.selected;
+  const isNbr = sel && relState.nbrOf.get(sel)?.has(nd.it.key);
+  showTip(ev, `<b>${esc(nd.it.title).slice(0,80)}</b><br>
+    ${nd.it.year||'—'} · ${esc(nd.it.collection)||'未分类'}<br>
+    连接 ${nd.deg} 条${nd.it.cited!=null?' · 被引 '+nd.it.cited:''}
+    ${isNbr?'<br><span style="opacity:.7">与选中文献直接相连</span>':''}
+    <br><span style="opacity:.6">点击查看邻居</span>`);
 });
+
 document.getElementById('c-rel').addEventListener('mouseleave', hideTip);
+
+document.getElementById('c-rel').addEventListener('click', ev=>{
+  const nd = relNearest(ev);
+  if (!nd){
+    if (relState.selected){ relState.selected = null; drawRel(); }
+    return;
+  }
+  // Clicking the selection again clears it, so the graph is one click to undo.
+  relState.selected = (relState.selected === nd.it.key) ? null : nd.it.key;
+  drawRel();
+});
+
+document.addEventListener('keydown', ev=>{
+  if (ev.key === 'Escape' && relState && relState.selected){
+    relState.selected = null; drawRel();
+  }
+});
 
 // ---------- 2. semantic map (TF-IDF + 2-D projection) ----------
 const STOP = new Set(('the a an and or of to in for on with by from as at is are was were be been being '
