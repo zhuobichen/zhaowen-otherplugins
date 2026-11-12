@@ -858,15 +858,32 @@ function drawGeo() {
     ctx.fillStyle = st.fill;
     ctx.fill('evenodd');
 
-    // Halo first: a wide, faint stroke makes the highlight readable at a
-    // glance, then the crisp line sits on top of it.
-    ctx.strokeStyle = st.stroke;
-    ctx.globalAlpha = 0.20;
-    ctx.lineWidth = st.width * 3.4;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = st.width;
-    ctx.stroke();
+    // A union (欧洲 37 countries, 非洲 50, 南美 12) is an AREA, not an outline.
+    // Stroking every member would draw all the internal borders and turn the
+    // continent into a dark mesh indistinguishable from the un-highlighted
+    // countries. Unions therefore get fill only; single regions get the thick
+    // boundary the eye can follow.
+    // Provinces always get their boundary (that is the whole point of the
+    // sub-national layer). Country groups only lose it when they are big
+    // enough that internal borders would swamp the map.
+    const memberCount = (spec.countries || []).length + (spec.provinces || []).length;
+    const isUnion = level === 'country' && memberCount > 3;
+    if (!isUnion) {
+      ctx.strokeStyle = st.stroke;
+      ctx.globalAlpha = 0.20;
+      ctx.lineWidth = st.width * 3.4;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = st.width;
+      ctx.stroke();
+    } else {
+      // Just enough edge to separate the union from the sea.
+      ctx.strokeStyle = st.stroke;
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
 
     // Mean of member centroids, so a union (欧洲, 非洲) lands in its middle
     // instead of on whichever member happens to be largest.
@@ -891,10 +908,17 @@ function drawGeo() {
           box.y+box.h < q.by || q.by+q.bh < box.y));
       if (!hit){ X += dx; Y += dy; placed.box = box; break; }
     }
-    // Halo first, so the number stays readable over land, sea, or fill.
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(255,253,249,.95)';
-    ctx.strokeText(text, X, Y);
+    // A small chip keeps the number legible even on top of a dark outline.
+    const cw = tw + 9, chh = 15;
+    ctx.beginPath();
+    ctx.rect(X - cw/2, Y - chh/2, cw, chh);
+    ctx.fillStyle = 'rgba(255,253,249,.96)';
+    ctx.fill();
+    ctx.strokeStyle = st.stroke;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.55;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = st.stroke;
     ctx.fillText(text, X, Y);
     placed.push({ name, n, level, x: X, y: Y,
