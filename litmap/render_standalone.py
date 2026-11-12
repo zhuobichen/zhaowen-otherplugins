@@ -333,7 +333,7 @@ TEMPLATE = r"""<!DOCTYPE html>
       <div class="bar"><span class="stat" id="geoStat"></span></div>
       <canvas id="c-geo" height="640"></canvas>
       <div class="legend" id="geoLegend"></div>
-      <div class="caption">研究区域由标题与笔记中的<b>地名识别</b>，一篇文献可能属于多个区域。纯方法论文通常没有研究区域，因此不出现在地图上。</div>
+      <div class="caption">研究区域由标题与笔记中的<b>地名识别</b>，一篇文献可能属于多个区域。有文献的区域会<b>加粗其行政边界</b>，轮廓内的数字是该区域的文献数；中国子区域用暖色叠在国内轮廓之上。纯方法论文没有研究区域，因此不上图。</div>
     </div>
   </section>
 </main>
@@ -342,7 +342,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <script>
 
 const DATA = __DATA__;
-const WORLD = @@WORLD@@;
+const GEO = @@WORLD@@;
 const items = DATA.items, edges = DATA.edges;
 const tip = document.getElementById('tip');
 
@@ -717,142 +717,220 @@ document.getElementById('c-tim').addEventListener('mousemove', ev=>{
 document.getElementById('c-geo-tip');
 document.getElementById('c-tim').addEventListener('mouseleave', hideTip);
 
-// ---------- 4. geographic distribution (lon/lat bubble map) ----------
-// Approximate centroids for the regions the lexicon can recognise.
-const REGION_XY = {
-  'CONUS':[-98,39], '中国':[105,35], '京津冀':[116.5,39.5], '长三角':[120,31],
-  '珠三角':[113.5,23], '汾渭平原':[108.6,34.6], '欧洲':[10,50], '英国/爱尔兰':[-2.5,54],
-  '印度':[78,22], '东南亚':[110,5], '韩国/日本':[128,36], '加拿大':[-106,56],
-  '意大利':[12.5,42.5], '中东':[45,30], '澳洲':[134,-25],
-  '非洲':[20,5], '南美':[-60,-15]
+// ---------- 4. geographic distribution ----------
+// Each region is drawn as its own administrative outline, thickened and tinted,
+// with the study count written inside. A bubble would only say "somewhere near
+// here"; an outline says "this is the area studied".
+const REGION_STYLE = {
+  country:  { stroke: '#2f4a6d', fill: 'rgba(47,74,109,.13)', width: 1.8 },
+  province: { stroke: '#a63d2a', fill: 'rgba(166,61,42,.17)', width: 2.4 },
 };
-function drawGeo(){
-  const cv=document.getElementById('c-geo');
-  const {ctx,w,h}=fitCanvas(cv);
-  const counts=new Map();
-  for (const it of items){
-    for (const r of (it.regions||[])) counts.set(r,(counts.get(r)||0)+1);
-  }
-  const maxN=Math.max(1,...counts.values());
-  // world window: lon -180..180, lat 80..-60
-  const LON0=-180, LON1=180, LAT0=78, LAT1=-58;
-  const pad=30;
-  const sx=(w-pad*2)/(LON1-LON0), sy=(h-pad*2)/(LAT0-LAT1);
-  const px=lon=>pad+(lon-LON0)*sx, py=lat=>pad+(LAT0-lat)*sy;
 
-  ctx.clearRect(0,0,w,h);
+function ringArea(ring) {
+  let a = 0;
+  const n = ring.length / 2;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    a += ring[2 * i] * ring[2 * j + 1] - ring[2 * j] * ring[2 * i + 1];
+  }
+  return Math.abs(a / 2);
+}
+
+function ringCentroid(ring) {
+  let a = 0, cx = 0, cy = 0;
+  const n = ring.length / 2;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const x0 = ring[2 * i], y0 = ring[2 * i + 1];
+    const x1 = ring[2 * j], y1 = ring[2 * j + 1];
+    const cross = x0 * y1 - x1 * y0;
+    a += cross;
+    cx += (x0 + x1) * cross;
+    cy += (y0 + y1) * cross;
+  }
+  if (Math.abs(a) < 1e-9) {
+    let sx = 0, sy = 0;
+    for (let i = 0; i < n; i++) { sx += ring[2 * i]; sy += ring[2 * i + 1]; }
+    return [sx / n, sy / n];
+  }
+  a *= 0.5;
+  return [cx / (6 * a), cy / (6 * a)];
+}
+
+// Largest ring of a shape set -- the mainland, not an outlying island.
+function mainRing(rings) {
+  let best = null, bestArea = 0;
+  for (const r of rings) {
+    const a = ringArea(r);
+    if (a > bestArea) { bestArea = a; best = r; }
+  }
+  return best;
+}
+
+function traceRings(ctx, rings, px, py) {
+  ctx.beginPath();
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i += 2) {
+      const X = px(ring[i]), Y = py(ring[i + 1]);
+      i === 0 ? ctx.moveTo(X, Y) : ctx.lineTo(X, Y);
+    }
+    ctx.closePath();
+  }
+}
+
+let geoState = null;
+
+function drawGeo() {
+  const cv = document.getElementById('c-geo');
+  const { ctx, w, h } = fitCanvas(cv);
+  const counts = new Map();
+  for (const it of items) {
+    for (const r of (it.regions || [])) counts.set(r, (counts.get(r) || 0) + 1);
+  }
+
+  const LON0 = -180, LON1 = 180, LAT0 = 78, LAT1 = -58;
+  const pad = 28;
+  const sx = (w - pad * 2) / (LON1 - LON0);
+  const sy = (h - pad * 2) / (LAT0 - LAT1);
+  const px = lon => pad + (lon - LON0) * sx;
+  const py = lat => pad + (LAT0 - lat) * sy;
+
+  ctx.clearRect(0, 0, w, h);
+
   // graticule
-  ctx.strokeStyle='#f0ebe0'; ctx.fillStyle='#a8a49a'; ctx.font='9.5px Georgia,serif';
-  for (let lon=-180; lon<=180; lon+=30){
-    ctx.beginPath(); ctx.moveTo(px(lon),py(LAT0)); ctx.lineTo(px(lon),py(LAT1)); ctx.stroke();
+  ctx.strokeStyle = '#f2ede2';
+  ctx.fillStyle = '#a8a49a';
+  ctx.font = '9.5px Georgia,serif';
+  for (let lon = -180; lon <= 180; lon += 30) {
+    ctx.beginPath(); ctx.moveTo(px(lon), py(LAT0)); ctx.lineTo(px(lon), py(LAT1)); ctx.stroke();
   }
-  for (let lat=-60; lat<=78; lat+=30){
-    ctx.beginPath(); ctx.moveTo(px(LON0),py(lat)); ctx.lineTo(px(LON1),py(lat)); ctx.stroke();
-    ctx.fillText(lat+'°', pad-22, py(lat)+3);
+  for (let lat = -60; lat <= 78; lat += 30) {
+    ctx.beginPath(); ctx.moveTo(px(LON0), py(lat)); ctx.lineTo(px(LON1), py(lat)); ctx.stroke();
+    ctx.fillText(lat + '°', pad - 20, py(lat) + 3);
   }
-  // Real country outlines from Natural Earth 110m, projected the same way as
-  // the bubbles: equirectangular, so lon/lat map linearly to x/y.
-  ctx.fillStyle='#f1ede4';
-  ctx.strokeStyle='#ddd6c7';
-  ctx.lineWidth=.7;
-  for (const [zh, en, rings] of WORLD){
-    ctx.beginPath();
-    for (const ring of rings){
-      for (let i=0;i<ring.length;i+=2){
-        const X=px(ring[i]), Y=py(ring[i+1]);
-        i===0 ? ctx.moveTo(X,Y) : ctx.lineTo(X,Y);
-      }
-      ctx.closePath();
-    }
+
+  // base map
+  ctx.fillStyle = '#f4f1e8';
+  ctx.strokeStyle = '#e7e0d2';
+  ctx.lineWidth = 0.55;
+  for (const name in GEO.countries) {
+    traceRings(ctx, GEO.countries[name], px, py);
     ctx.fill('evenodd');
-  }
-  ctx.strokeStyle='#ddd6c7';
-  for (const [zh, en, rings] of WORLD){
-    ctx.beginPath();
-    for (const ring of rings){
-      for (let i=0;i<ring.length;i+=2){
-        const X=px(ring[i]), Y=py(ring[i+1]);
-        i===0 ? ctx.moveTo(X,Y) : ctx.lineTo(X,Y);
-      }
-      ctx.closePath();
-    }
     ctx.stroke();
   }
-  // bubbles
-  const rows=[...counts.entries()].filter(([n])=>REGION_XY[n])
-    .sort((a,b)=>b[1]-a[1]);
-  const placed=[];
-  ctx.font='600 11px Georgia,serif';
-  for (const [name,n] of rows){
-    const [lon,lat]=REGION_XY[name];
-    const r=6+Math.sqrt(n/maxN)*30;
-    const cx=px(lon), cy=py(lat);
-    ctx.beginPath(); ctx.arc(cx,cy,r,0,7);
-    ctx.fillStyle='rgba(47,74,109,.20)'; ctx.fill();
-    ctx.strokeStyle='rgba(47,74,109,.72)'; ctx.lineWidth=1.3; ctx.stroke();
 
-    // Place the label in the first direction that does not collide with an
-    // already placed one; East Asia packs six regions into ~10 degrees, so
-    // a fixed "above" position overlaps badly.
-    const text=`${name} ${n}`;
-    const tw=ctx.measureText(text).width, th=12;
-    const cands=[
-      [cx-tw/2, cy-r-6-th],
-      [cx-tw/2, cy+r+2],
-      [cx+r+5, cy-th/2],
-      [cx-r-5-tw, cy-th/2],
-      [cx-tw/2, cy-r-20-th],
-      [cx-tw/2, cy+r+16],
-    ];
-    let pick=null;
-    for (const [lx,ly] of cands){
-      const box={x:lx-2, y:ly-2, w:tw+4, h:th+4};
-      const hit=placed.some(p=>!(box.x+box.w<p.x||p.x+p.w<box.x||
-                                 box.y+box.h<p.y||p.y+p.h<box.y));
-      if (!hit){ pick={lx,ly,box}; break; }
+  // highlighted regions: countries first, then provinces on top so the
+  // sub-national areas stay legible inside 中国
+  const regions = GEO.regions;
+  const order = [];
+  for (const name in regions) if (regions[name].countries) order.push([name, 'country']);
+  for (const name in regions) if (regions[name].provinces) order.push([name, 'province']);
+
+  const placed = [];
+  for (const [name, level] of order) {
+    const n = counts.get(name) || 0;
+    if (!n) continue;
+    const spec = regions[name];
+    const rings = [];
+    const anchors = [];
+    for (const c of (spec.countries || [])) {
+      const rs = GEO.countries[c] || [];
+      if (!rs.length) continue;
+      for (const r of rs) rings.push(r);
+      const mr = mainRing(rs);
+      if (mr) anchors.push(ringCentroid(mr));
     }
-    if (!pick) continue;             // no room: the legend below still lists it
-    placed.push(pick.box);
-    // leader line when the label had to move away from the bubble
-    const lyc=pick.ly+th/2;
-    const far=Math.abs(pick.lx+tw/2-cx)>r+8 || Math.abs(lyc-cy)>r+10;
-    if (far){
-      ctx.strokeStyle='rgba(47,74,109,.32)'; ctx.lineWidth=.9;
-      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(pick.lx+tw/2,lyc); ctx.stroke();
+    for (const p of (spec.provinces || [])) {
+      const rs = GEO.provinces[p] || [];
+      if (!rs.length) continue;
+      for (const r of rs) rings.push(r);
+      const mr = mainRing(rs);
+      if (mr) anchors.push(ringCentroid(mr));
     }
-    ctx.fillStyle='#23262d'; ctx.textAlign='left';
-    ctx.fillText(text, pick.lx, pick.ly+th-2);
+    if (!rings.length || !anchors.length) continue;
+
+    const st = REGION_STYLE[level];
+    traceRings(ctx, rings, px, py);
+    ctx.fillStyle = st.fill;
+    ctx.fill('evenodd');
+    ctx.strokeStyle = st.stroke;
+    ctx.lineWidth = st.width;
+    ctx.stroke();
+
+    // Mean of member centroids, so a union (欧洲, 非洲) lands in its middle
+    // instead of on whichever member happens to be largest.
+    let ax = 0, ay = 0;
+    for (const a of anchors) { ax += a[0]; ay += a[1]; }
+    ax /= anchors.length;
+    ay /= anchors.length;
+
+    const text = String(n);
+    ctx.font = '700 13px Georgia,serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // East Asia packs six regions into a few degrees, so a label that lands on
+    // top of an already placed one is nudged until it clears.
+    const tw = ctx.measureText(text).width;
+    let X = px(ax), Y = py(ay);
+    const offsets = [[0,0],[0,-15],[0,15],[16,-8],[-16,-8],[16,9],[-16,9],[0,-28],[0,28]];
+    for (const [dx,dy] of offsets){
+      const box = { x: X+dx-tw/2-3, y: Y+dy-8, w: tw+6, h: 16 };
+      const hit = placed.some(q =>
+        !(box.x+box.w < q.bx || q.bx+q.bw < box.x ||
+          box.y+box.h < q.by || q.by+q.bh < box.y));
+      if (!hit){ X += dx; Y += dy; placed.box = box; break; }
+    }
+    // Halo first, so the number stays readable over land, sea, or fill.
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = 'rgba(255,253,249,.92)';
+    ctx.strokeText(text, X, Y);
+    ctx.fillStyle = st.stroke;
+    ctx.fillText(text, X, Y);
+    placed.push({ name, n, level, x: X, y: Y,
+      bx: X-tw/2-3, by: Y-8, bw: tw+6, bh: 16 });
   }
-  geoState={rows,proj:{px,py,r:n=>6+Math.sqrt(n/maxN)*30}};
-  const lg=document.getElementById('geoLegend');
-  if (lg){
-    lg.innerHTML = rows.map(([name,n])=>{
-      const fam = '';
-      return `<span style="color:#3b3e46">${esc(name)} <b style="font-variant-numeric:tabular-nums">${n}</b></span>`;
-    }).join('') + '<span style="opacity:.65">气泡按文献数缩放</span>';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  geoState = { placed };
+
+  const lg = document.getElementById('geoLegend');
+  if (lg) {
+    const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    lg.innerHTML =
+      `<span><i style="background:${REGION_STYLE.country.stroke}"></i>国家 / 区域</span>` +
+      `<span><i style="background:${REGION_STYLE.province.stroke}"></i>中国子区域</span>` +
+      rows.map(([nm, k]) =>
+        `<span style="color:#3b3e46">${esc(nm)} <b style="font-variant-numeric:tabular-nums">${k}</b></span>`
+      ).join('') +
+      `<span class="lg-note">轮廓内数字 = 该区域的文献数</span>`;
   }
-  const none=items.filter(i=>!(i.regions||[]).length).length;
+
+  const none = items.filter(i => !(i.regions || []).length).length;
   document.getElementById('geoStat').textContent =
-    `${rows.length} 个区域 · ${none} 篇未识别出区域（地图上不显示）`;
+    `${counts.size} 个区域 · ${none} 篇未识别出区域（不上图）`;
 }
-let geoState=null;
-document.getElementById('c-geo').addEventListener('mousemove', ev=>{
+
+document.getElementById('c-geo').addEventListener('mousemove', ev => {
   if (!geoState) return;
-  const cv=ev.currentTarget, rect=cv.getBoundingClientRect();
-  const mx=ev.clientX-rect.left, my=ev.clientY-rect.top;
-  let hit=null;
-  for (const [name,n] of geoState.rows){
-    const [lon,lat]=REGION_XY[name];
-    const dx=geoState.proj.px(lon)-mx, dy=geoState.proj.py(lat)-my;
-    if (dx*dx+dy*dy <= Math.pow(geoState.proj.r(n),2)){ hit=[name,n]; break; }
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+  let best = null, bd = 900;   // 30 px
+  for (const p of geoState.placed) {
+    const dx = p.x - mx, dy = p.y - my, d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = p; }
   }
-  if (hit){
-    const list=items.filter(i=>(i.regions||[]).includes(hit[0]));
-    const subs={};
-    list.forEach(i=>{ const c=i.collection||'未分类'; subs[c]=(subs[c]||0)+1; });
-    const top=Object.entries(subs).sort((a,b)=>b[1]-a[1]).slice(0,4)
-      .map(([k,v])=>`${esc(k)} ${v}`).join(' · ');
-    showTip(evt, `<b>${esc(hit[0])}</b><br>${hit[1]} 篇<br><span style="opacity:.75">${top}</span>`);
+  if (best) {
+    const list = items.filter(i => (i.regions || []).includes(best.name));
+    const subs = {};
+    list.forEach(i => {
+      const c = i.collection || '未分类';
+      subs[c] = (subs[c] || 0) + 1;
+    });
+    const top = Object.entries(subs).sort((a, b) => b[1] - a[1]).slice(0, 4)
+      .map(([k, v]) => `${esc(k)} ${v}`).join(' · ');
+    showTip(evt, `<b>${esc(best.name)}</b> · ${best.n} 篇<br>` +
+      `<span style="opacity:.75">${top}</span>`);
   } else hideTip();
 });
 document.getElementById('c-geo').addEventListener('mouseleave', hideTip);
@@ -897,14 +975,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", default=str(DATA))
     parser.add_argument("--out", default=str(OUT))
-    parser.add_argument("--world", default=r"E:\CodeProject\其余工程\_world_compact.json")
+    parser.add_argument("--world", default=r"E:\CodeProject\其余工程\litmap\content\regions.json")
     args = parser.parse_args()
 
     payload = json.loads(Path(args.data).read_text(encoding="utf-8"))
     world = Path(args.world).read_text(encoding="utf-8")
     html = (TEMPLATE
             .replace("__DATA__", json.dumps(payload, ensure_ascii=False))
-            .replace("__WORLD__", world))
+            .replace("@@WORLD@@", world))
     Path(args.out).write_text(html, encoding="utf-8")
     print(f"写出 {args.out}  ({Path(args.out).stat().st_size/1024:.0f} KB)")
     print(f"  文献 {len(payload['items'])}  引用边 {len(payload['edges'])}")
