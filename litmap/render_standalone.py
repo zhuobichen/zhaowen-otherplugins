@@ -722,8 +722,11 @@ document.getElementById('c-tim').addEventListener('mouseleave', hideTip);
 // with the study count written inside. A bubble would only say "somewhere near
 // here"; an outline says "this is the area studied".
 const REGION_STYLE = {
-  country:  { stroke: '#2f4a6d', fill: 'rgba(47,74,109,.13)', width: 1.8 },
-  province: { stroke: '#a63d2a', fill: 'rgba(166,61,42,.17)', width: 2.4 },
+  // Fills have to clear the base-map beige (#f4f1e8) by a wide margin, and the
+  // stroke has to survive a 1700 px canvas, so both are pushed well past what
+  // looks right in isolation.
+  country:  { stroke: '#1f3557', fill: 'rgba(31,53,87,.28)',  width: 2.8 },
+  province: { stroke: '#8f2f1c', fill: 'rgba(143,47,28,.36)', width: 3.6 },
 };
 
 function ringArea(ring) {
@@ -850,10 +853,18 @@ function drawGeo() {
     if (!rings.length || !anchors.length) continue;
 
     const st = REGION_STYLE[level];
+    ctx.lineJoin = 'round';
     traceRings(ctx, rings, px, py);
     ctx.fillStyle = st.fill;
     ctx.fill('evenodd');
+
+    // Halo first: a wide, faint stroke makes the highlight readable at a
+    // glance, then the crisp line sits on top of it.
     ctx.strokeStyle = st.stroke;
+    ctx.globalAlpha = 0.20;
+    ctx.lineWidth = st.width * 3.4;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.lineWidth = st.width;
     ctx.stroke();
 
@@ -865,7 +876,7 @@ function drawGeo() {
     ay /= anchors.length;
 
     const text = String(n);
-    ctx.font = '700 13px Georgia,serif';
+    ctx.font = '700 14px Georgia,serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     // East Asia packs six regions into a few degrees, so a label that lands on
@@ -874,20 +885,20 @@ function drawGeo() {
     let X = px(ax), Y = py(ay);
     const offsets = [[0,0],[0,-15],[0,15],[16,-8],[-16,-8],[16,9],[-16,9],[0,-28],[0,28]];
     for (const [dx,dy] of offsets){
-      const box = { x: X+dx-tw/2-3, y: Y+dy-8, w: tw+6, h: 16 };
+      const box = { x: X+dx-tw/2-3, y: Y+dy-9, w: tw+6, h: 18 };
       const hit = placed.some(q =>
         !(box.x+box.w < q.bx || q.bx+q.bw < box.x ||
           box.y+box.h < q.by || q.by+q.bh < box.y));
       if (!hit){ X += dx; Y += dy; placed.box = box; break; }
     }
     // Halo first, so the number stays readable over land, sea, or fill.
-    ctx.lineWidth = 3.5;
-    ctx.strokeStyle = 'rgba(255,253,249,.92)';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(255,253,249,.95)';
     ctx.strokeText(text, X, Y);
     ctx.fillStyle = st.stroke;
     ctx.fillText(text, X, Y);
     placed.push({ name, n, level, x: X, y: Y,
-      bx: X-tw/2-3, by: Y-8, bw: tw+6, bh: 16 });
+      bx: X-tw/2-3, by: Y-9, bw: tw+6, bh: 18 });
   }
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
