@@ -1,0 +1,17 @@
+{
+  "manifest_version": 2,
+  "name": "Literature Map",
+  "version": "1.0.0",
+  "description": "在 Zotero 里生成文献地图：引用网络、语义聚类、时间×分类、地理分布",
+  "homepage_url": "https://github.com/zhuobichen/zhaowen-otherplugins",
+  "author": "zhuobichen",
+  "icons": {},
+  "applications": {
+    "zotero": {
+      "id": "litmap@zhuobichen.github.io",
+      "strict_min_version": "7.0",
+      "strict_max_version": "10.*",
+      "update_url": "https://github.com/zhuobichen/zhaowen-otherplugins/releases/download/litmap/update.json"
+    }
+  }
+}
