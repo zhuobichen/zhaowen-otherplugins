@@ -853,22 +853,22 @@ function drawGeo() {
     if (!rings.length || !anchors.length) continue;
 
     const st = REGION_STYLE[level];
+
+    // Colour exactly what was studied: a paper tagged 非洲 studied Africa, so
+    // the continent is filled. What it must NOT do is draw every member's
+    // border -- that turned each continent into a dark mesh that read the same
+    // as the un-highlighted countries. Broad regions therefore fill only;
+    // single countries and provinces also get the thick boundary, because
+    // theirs is a single contour worth following.
+    const memberCount = (spec.countries || []).length + (spec.provinces || []).length;
+    const isBroadRegion = level === 'country' && memberCount > 3;
+
     ctx.lineJoin = 'round';
     traceRings(ctx, rings, px, py);
     ctx.fillStyle = st.fill;
     ctx.fill('evenodd');
 
-    // A union (欧洲 37 countries, 非洲 50, 南美 12) is an AREA, not an outline.
-    // Stroking every member would draw all the internal borders and turn the
-    // continent into a dark mesh indistinguishable from the un-highlighted
-    // countries. Unions therefore get fill only; single regions get the thick
-    // boundary the eye can follow.
-    // Provinces always get their boundary (that is the whole point of the
-    // sub-national layer). Country groups only lose it when they are big
-    // enough that internal borders would swamp the map.
-    const memberCount = (spec.countries || []).length + (spec.provinces || []).length;
-    const isUnion = level === 'country' && memberCount > 3;
-    if (!isUnion) {
+    if (!isBroadRegion) {
       ctx.strokeStyle = st.stroke;
       ctx.globalAlpha = 0.20;
       ctx.lineWidth = st.width * 3.4;
@@ -876,13 +876,6 @@ function drawGeo() {
       ctx.globalAlpha = 1;
       ctx.lineWidth = st.width;
       ctx.stroke();
-    } else {
-      // Just enough edge to separate the union from the sea.
-      ctx.strokeStyle = st.stroke;
-      ctx.globalAlpha = 0.5;
-      ctx.lineWidth = 0.9;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
     }
 
     // Mean of member centroids, so a union (欧洲, 非洲) lands in its middle
@@ -917,7 +910,11 @@ function drawGeo() {
     ctx.strokeStyle = st.stroke;
     ctx.lineWidth = 1;
     ctx.globalAlpha = 0.55;
+    // Dashed border marks a broad-region total, which is a different claim
+    // from "this country was studied".
+    if (isBroadRegion) ctx.setLineDash([2.5, 2.5]);
     ctx.stroke();
+    ctx.setLineDash([]);
     ctx.globalAlpha = 1;
     ctx.fillStyle = st.stroke;
     ctx.fillText(text, X, Y);
