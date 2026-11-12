@@ -308,6 +308,22 @@ function writeFile(path, text) {
   return file;
 }
 
+// ------------------------------------------------------------ fast open ----
+// With this on, "打开或生成" never touches the library: it launches the existing
+// HTML immediately. The cost is that a changed library is no longer detected,
+// which is the trade the user asked for -- opening stays instant, rebuilding
+// stays manual.
+var FAST_OPEN_PREF = "extensions.zotero.litmap.fastOpen";
+
+function getFastOpen() {
+  try { return Zotero.Prefs.get(FAST_OPEN_PREF, true) === true; }
+  catch (e) { return false; }
+}
+
+function setFastOpen(value) {
+  try { Zotero.Prefs.set(FAST_OPEN_PREF, value, true); } catch (e) { /* ignore */ }
+}
+
 // ---------------------------------------------------------------- cache ----
 // The generated HTML is a pure function of the library payload, so it can be
 // keyed by a hash of that payload. If the hash is unchanged there is nothing to
@@ -351,6 +367,18 @@ function fingerprint(str) {
 }
 
 async function generate(win, forceRefresh, clearCitations) {
+  var dir = Services.dirsvc.get("Docs", Components.interfaces.nsIFile);
+  var path = dir.path + "\\文献地图.html";
+  var outFile = Zotero.File.pathToFile(path);
+
+  // Fast path: open the existing file without reading anything. Reached only
+  // for the first menu item (no rebuild requested) and only when a map exists.
+  if (!forceRefresh && getFastOpen() && outFile.exists()) {
+    log("fast open, no library read");
+    Zotero.launchURL("file:///" + path.replace(/\\/g, "/"));
+    return;
+  }
+
   var progress = new Zotero.ProgressWindow({ closeOnClick: false });
   progress.changeHeadline("文献地图");
   progress.show();
@@ -374,9 +402,6 @@ async function generate(win, forceRefresh, clearCitations) {
     var payloadJson = JSON.stringify(payload);
     var fp = fingerprint(payloadJson);
 
-    var dir = Services.dirsvc.get("Docs", Components.interfaces.nsIFile);
-    var path = dir.path + "\\文献地图.html";
-    var outFile = Zotero.File.pathToFile(path);
     var prev = readState();
     var haveCache = outFile.exists();
 
@@ -455,11 +480,24 @@ function findToolsPopup(doc) {
   return null;
 }
 
+// Remove and re-add every entry so labels pick up pref changes.
+function refreshMenu(win) {
+  try {
+    var popup = findToolsPopup(win.document);
+    if (popup) {
+      var stale = popup.querySelectorAll(".litmap-item");
+      for (var i = stale.length - 1; i >= 0; i--) stale[i].remove();
+    }
+    menuInstalled = false;
+    installMenu(win);
+  } catch (e) { log("refreshMenu failed: " + e); }
+}
+
 function installMenu(win) {
   var doc = win.document;
   var popup = findToolsPopup(doc);
   if (!popup) return false;
-  if (popup.querySelectorAll(".litmap-item").length >= 3) return true;
+  if (popup.querySelectorAll(".litmap-item").length >= 4) return true;
 
   var sep = popup.querySelector("menuseparator");
   var anchor = sep && sep.parentNode === popup ? sep : null;
@@ -481,6 +519,19 @@ function installMenu(win) {
   place(makeItem3("打开或生成文献地图", false, false));
   place(makeItem3("重新构建文献地图", true, false));
   place(makeItem3("清空引用缓存并重查", true, true));
+
+  // Toggle for the instant-open mode. Rebuilt in place so the label always
+  // reflects the stored preference.
+  var toggle = doc.createXULElement("menuitem");
+  toggle.className = "menuitem-iconic litmap-item";
+  toggle.setAttribute("label", "快速打开（不读库）：" +
+    (getFastOpen() ? "开" : "关"));
+  toggle.addEventListener("command", function () {
+    setFastOpen(!getFastOpen());
+    log("fastOpen -> " + getFastOpen());
+    refreshMenu(win);
+  });
+  place(toggle);
 
   log("menu inserted into " + (popup.id || popup.tagName));
   return true;
