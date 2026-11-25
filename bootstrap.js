@@ -195,6 +195,7 @@ function pathForItem(item) {
  *
  *   方法           -> NPG blue   #3C5488
  *   应用           -> NPG red    #E64B35
+ *   综述           -> warm yellow #E8A200
  *   未分类 / 垃圾箱  -> muted grey #8491B4
  *
  * Sub-categories share their parent's colour; the hierarchy reads from the
@@ -205,15 +206,18 @@ function pathForItem(item) {
 const ACCENTS = {
   method: "#3C5488",
   application: "#E64B35",
+  review: "#E8A200",
   muted: "#4B5563",
 };
 
 const COOL = ["\u65b9\u6cd5"];
 const WARM = ["\u5e94\u7528"];
+const REVIEW = ["\u7efc\u8ff0"];
 const MUTED = ["\u672a\u5206\u7c7b", "\u5783\u573e\u7bb1", "\u2605 \u5206\u7c7b\u7d22\u5f15"];
 
 function familyFor(group) {
   if (MUTED.includes(group)) return "muted";
+  if (REVIEW.includes(group)) return "review";
   if (WARM.includes(group)) return "application";
   return "method";
 }
