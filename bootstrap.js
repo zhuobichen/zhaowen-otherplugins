@@ -254,6 +254,12 @@ function renderCell(index, data, column, isFirstColumn, doc) {
     return cell;
   }
 
+  // Render each parent group chip at most once. An item can belong to several
+  // child collections under the same parent (e.g. 综述 > 臭氧与大气化学 and
+  // 综述 > 健康效应); the parent pill must not be repeated, while every child
+  // chip still gets shown.
+  const seenGroups = new Set();
+
   for (const raw of String(data).split(" | ")) {
     // Drop the hidden sort rank; everything after SORT_SEP is display text.
     const entry = raw.includes(SORT_SEP) ? raw.split(SORT_SEP)[1] : raw;
@@ -314,7 +320,8 @@ function renderCell(index, data, column, isFirstColumn, doc) {
     const edge = tint(accent, 0.55);
     const ink = shade(accent, 0.15);
 
-    if (group) {
+    if (group && !seenGroups.has(group)) {
+      seenGroups.add(group);
       const top = document.createElement("span");
       top.textContent = group;
       top.title = group;
