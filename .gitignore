@@ -1,6 +1,7 @@
-﻿# Build artefacts other than the released .xpi
+# Build artefacts other than the released .xpi
 dist/*.xpi
 !dist/collection-tags-*.xpi
+!dist/relevance-column-*.xpi
 
 # Local database snapshot used by sync_collections_to_tags.py
 _tag_snapshot/
@@ -13,4 +14,4 @@ Thumbs.db
 
 # Plugin debug log
 dist/_ct_log.txt
-
+relevance-column/_relevance_log.txt

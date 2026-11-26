@@ -1,0 +1,19 @@
+{
+    "manifest_version": 2,
+    "name": "Relevance Column",
+    "version": "1.0.1",
+    "description": "Adds a hidden-by-default column showing paper relevance scores from paper-relevance skill CSV, with rubric fingerprint.",
+    "homepage_url": "https://github.com/zhuobichen/zhaowen-skill",
+    "author": "zhuobichen",
+    "icons": {
+        "48": "chrome/content/icons/score.svg",
+        "96": "chrome/content/icons/score.svg"
+    },
+    "applications": {
+        "zotero": {
+            "id": "relevance-column@zhuobichen.github.io",
+            "strict_min_version": "7.0",
+            "strict_max_version": "10.*"
+        }
+    }
+}

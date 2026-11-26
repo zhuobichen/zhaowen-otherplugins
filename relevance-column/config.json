@@ -1,0 +1,4 @@
+{
+  "csv": "E:\\CodeProject\\Agent_Papers\\projects\\O3_DataFusion_Policy\\audit\\relevance\\scores_ALL_rubric-rel-5lvl-zh-v1.csv",
+  "note": "合并表：330 全文 + 19 Zotero全文缓存 + 15 摘要 = 364 篇。每行绑定 rubric_id/rubric_sha256。更新后条目右键 Reload Relevance Scores 或重启 Zotero。列默认隐藏：右键表头勾选 Relevance 才显示。"
+}
